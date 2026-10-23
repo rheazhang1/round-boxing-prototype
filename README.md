@@ -2,25 +2,24 @@
 
 Mobile prototype: Skill Tree, Training, AI Coach and Growth.
 
-## v0.3
+## v0.4
 
-- The first path connects stance and balance, jab and return, moving jab, and distance control.
-- Each node contains knowledge, an optional understanding check, two practice options, observation criteria, reference links and scope limits.
-- Understanding, timed practice and conditional validation are distinct. Lighting a node requires a manually reported observation, context, source and attestation. Coach feedback is labeled as user-transcribed, with identity unverified.
-- Validation can be withdrawn without removing training history. Nodes are always browsable; connections are suggested prerequisites.
-- Training preserves the chosen drill, timer state and automatic session records. Accelerated demo sessions cannot be selected as validation evidence.
-- AI Coach is a working local keyword retrieval prototype over four cards, not a connected LLM or video assessor. It makes no external AI requests.
-- Existing browser profiles, old lesson completion, sessions and drafts are preserved. Old lesson completion does not light the new skills. No daily-plan dashboard.
-- Progress and questions remain in localStorage on the visitor's browser. No personal training data or credentials are included in this repository.
+- The home screen shows the development framework immediately: twelve common foundations, four optional branches, style integration, and supporting physical/decision-making abilities.
+- Foundations cover preparation, stance, footwork, basic punches, defense, combinations, moving jab and distance judgment. Every published card has knowledge, an optional quiz, practice and conditional observation criteria.
+- All branches can be previewed from the beginning. Visitors can bookmark interest early, then select any primary branch once all twelve foundation knowledge cards are marked understood. Switching branches preserves progress and evidence.
+- Branches are combination attack, defense/counter, movement/distance and pressure. Each currently has one published introductory card and two clearly labeled planned topics. The framework does not imply the advanced curriculum is complete.
+- The selected branch appears in Training and sets the current focus. Completing knowledge, practicing and lighting a skill remain distinct. Lighting requires a manual observation, conditions, source and attestation, not a timer or course count.
+- AI Coach is local keyword retrieval over sixteen published cards. It is not a connected LLM or video assessor and makes no external AI requests.
+- Existing profiles, skill progress, sessions and validation records are preserved. Progress stays in localStorage on the visitor's browser. No personal training data or credentials are included in this repository.
 
 ## Static deployment
 
 Node.js 18+, no dependencies. Build: `npm run build`. Output: `dist`.
 Hash routes work on static hosting. The build copies index.html, styles.css, data.js and app.js.
-The existing public app URL remains https://roundboxing-10k3h3dm.maozi.io/ .
+Public app URL: https://roundboxing-10k3h3dm.maozi.io/ .
 
 ## Verification
 
-27 local state regression tests passed. Browser checks covered 390px and 320px layouts, all four nodes, eight drills, twelve observation criteria, a full two-round timer run (60 active seconds), form validation, refresh persistence, growth records and source-linked coach retrieval. No browser script errors were observed.
+32 local state regression tests passed, including all-foundation gating, early interest, branch switching, reload persistence, retained evidence, and existing timer/validation behavior. Mobile browser checks covered the visible map, gated/unlocked selection, a complete twelve-card understanding flow, branch switching, training linkage, and 390px/320px layouts. No script errors observed during these checks.
 
-The educational cards and observation rubric are prototype content pending coach review, not a governing-body certification. Hardware and video capture are not implemented.
+Cards and observation rubrics are original prototype content pending coach review, not a governing-body certification. Hardware and video capture are not implemented.

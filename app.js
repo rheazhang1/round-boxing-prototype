@@ -44,7 +44,7 @@
   const cnDate = date => new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', month: 'long', day: 'numeric' }).format(new Date(date));
   function defaultState(blank = true) {
     return {
-      skillProgress: {}, skillEvidence: [], evidenceDrafts: {}, focusSkill: 101, coachMessages: [], coachDraft: '',
+      skillProgress: {}, skillEvidence: [], evidenceDrafts: {}, focusSkill: 112, primaryBranch: null, interestedBranch: null, coachMessages: [], coachDraft: '',
       version: 1, profile: { name: blank ? '新朋友' : '练习者', goal: '扎实基本功', experience: '刚刚开始', stance: '左脚在前', days: '每周 3 次' },
       learned: blank ? [] : [1, 2], lastLesson: blank ? 1 : 3,
       records: blank ? [] : [
@@ -158,6 +158,22 @@
   const pathData = window.ROUND_PATH;
   const pathSkills = pathData.skills;
   const getSkill = id => pathSkills.find(s => s.id === Number(id));
+  const mapData = window.ROUND_MAP;
+  const getBranch = id => mapData.branches.find(b=>b.id===id);
+  const foundationSkills = mapData.foundations.map(getSkill);
+  function foundationCount() { return foundationSkills.filter(s=>skillProgress(s.id).understood).length; }
+  function foundationLearned() { return foundationCount()===foundationSkills.length; }
+  function nextFoundation() { return foundationSkills.find(s=>!skillProgress(s.id).understood)||foundationSkills[0]; }
+  function selectBranch(id) {
+    const branch=getBranch(id);
+    if(!branch)return '未找到这个分支。';
+    if(!foundationLearned())return '先完成 12 项基础知识的理解，再选择主修分支。';
+    state.primaryBranch=id;state.focusSkill=branch.entry;save();return '';
+  }
+  function nextSkill(s) {
+    if(s.branch)return null;
+    return getSkill(mapData.foundations[mapData.foundations.indexOf(s.id)+1]);
+  }
   let skillTab = 'knowledge', treeDomain = '技术', coachSkill = Number(state.coachSkill)||null;
   const stages = ['未探索','已理解','练习中','已点亮'];
   function skillProgress(id) { return state.skillProgress[id] || {}; }
@@ -174,27 +190,41 @@
   }
   function treePage() {
     topbar();navigation('home');
-    const f=focusedSkill(),count=pathSkills.filter(s=>skillStage(s.id)===3).length;
-    const domains=['技术','身体','战术','风格'];
-    const domainCopy={身体:['为动作提供支持','力量、速度、协调与耐力将按测评条件记录。当前先观察站架中的平衡，不把身体能力换算成统一分数。'],战术:['从动作，走向选择','本路径的距离控制节点是战术入口：观察距离，选择调整、出手或等待。'],风格:['逐渐找到自己的打法','后续连接外围控制、压迫与反击。先积累技术和情境证据，再探索适合自己的组织方式。']};
-    return `<div class="intro tree-intro"><span class="eyebrow">BUILD YOUR BOXING</span><h1>让拳击技能生长。</h1><p>理解它，练习它，留下点亮的证据。</p></div>${resumeCard()}
-      <div class="domain-switch" aria-label="知识主干">${domains.map(d=>`<button class="chip ${treeDomain===d?'active':''}" data-action="tree-domain" data-value="${d}" aria-pressed="${treeDomain===d}">${d}</button>`).join('')}</div>
-      ${treeDomain!=='技术'?`<section class="domain-note"><span class="eyebrow">${treeDomain==='战术'?'TACTICAL DECISIONS':'EXPLORATION'}</span><h2>${domainCopy[treeDomain][0]}</h2><p>${domainCopy[treeDomain][1]}</p>${treeDomain==='战术'?button('进入距离控制 '+icon('arrow',16),'open-skill','primary full','data-id="104"'):'<span class="tiny muted">知识分支规划中 · 当前可体验下方基础路径</span>'}</section>`:''}
+    const f=focusedSkill(),count=foundationCount(),ready=foundationLearned(),primary=getBranch(state.primaryBranch);
+    return `<div class="intro map-intro"><span class="eyebrow">YOUR BOXING MAP</span><h1>先看全貌，再走自己的路。</h1><p>基础共修 → 自选分支 → 风格融合</p></div>
+      <section class="boxing-map" aria-label="拳击技能全景图"><div class="map-section-head"><h2><span>01</span> 基础共修</h2><span>${count} / ${foundationSkills.length} 已理解</span></div>
+      <div class="foundation-grid">${foundationSkills.map((s,i)=>`<button class="foundation-node ${skillProgress(s.id).understood?'understood':''} ${skillStage(s.id)===3?'is-lit':''}" data-action="open-skill" data-id="${s.id}" aria-label="${s.title} · ${stages[skillStage(s.id)]}"><span class="foundation-number">${skillStage(s.id)===3?'✦':String(i+1).padStart(2,'0')}</span><span>${mapData.labels[s.id]}</span><span class="node-dot stage-${skillStage(s.id)}" aria-hidden="true"></span></button>`).join('')}</div>
+      <div class="map-connector"><span>${ready?'基础已理解，可以选择主修':'学完基础后，选择优先方向'}</span></div>
+      <div class="map-section-head"><h2><span>02</span> 分支探索</h2><span>现在即可预览</span></div>
+      <div class="branch-grid">${mapData.branches.map(b=>`<button class="branch-node ${state.primaryBranch===b.id?'selected':''}" data-action="open-branch" data-id="${b.id}"><span class="branch-icon">${icon(b.icon,18)}</span><span><strong>${b.title}</strong><small>${state.primaryBranch===b.id?'✓ 当前主修':state.interestedBranch===b.id?'已标记感兴趣':ready?'可设为主修':'查看发展方向'}</small></span>${icon('chevron',14)}</button>`).join('')}</div>
+      <button class="map-fusion" data-action="map-style"><span>03</span><strong>风格融合</strong><small>组合自己的打法</small>${icon('chevron',14)}</button>
+      <button class="map-support" data-action="map-support">${icon('target',15)} 身体能力 · 观察决策 · 规则与心理 ${icon('chevron',13)}</button></section>
+      <p class="map-caption">全景框架 · 16 张可学卡片 · 后续主题持续补全</p>
+      ${resumeCard()}
+      ${ready?`<section class="branch-guidance"><strong>${primary?'正在主修 · '+primary.title:'基础知识已学完，选一个方向深入。'}</strong><p>${primary?'随时可以切换；各分支的学习和验证记录独立保留。':'点开上方任一分支，设为主修。也可以继续巩固基础动作。'}</p>${primary?button('继续主修 '+icon('arrow',16),'open-branch','secondary full',`data-id="${primary.id}"`):''}</section>`:`<div class="foundation-guidance"><p>先共同打底，再按兴趣深入。知识学完可选择主修；动作点亮仍需记录情境验证。</p>${button('继续基础 · '+mapData.labels[nextFoundation().id]+' '+icon('arrow',16),'continue-foundations','primary full')}</div>`}
       <section class="focus-card"><div class="between"><span class="eyebrow">正在攻克</span>${statusBadge(f.id)}</div><button class="focus-link" data-action="open-skill" data-id="${f.id}"><span><h2>${f.title}</h2><p>${f.subtitle}</p></span>${icon('arrow',23)}</button><div class="focus-footer"><span>${skillRecords(f.id).length} 次计时练习 · ${evidenceFor(f.id).length} 条验证</span><button data-action="coach-context" data-id="${f.id}">${icon('spark',14)} 问教练</button></div></section>
-      <section class="section tree-section"><div class="section-head"><div><h2>${pathData.title}</h2><p class="tiny muted">基础路径 01 · 连线表示建议顺序</p></div><span class="path-count">${count}<small> / 4 点亮</small></span></div>
-      <ol class="skill-tree">${pathSkills.map((s,i)=>`<li class="tree-step ${skillStage(s.id)===3?'is-lit':''} ${s.id===f.id?'is-focus':''}"><span class="tree-index" aria-hidden="true">${skillStage(s.id)===3?'✓':String(i+1).padStart(2,'0')}</span><button class="tree-node" data-action="open-skill" data-id="${s.id}"><span class="between"><span class="tiny muted">${s.domain} · ${s.short}</span>${statusBadge(s.id)}</span><h3>${s.title}</h3><p>${s.subtitle}</p><span class="tree-node-footer">知识 · 练习 · 点亮标准 ${icon('chevron',15)}</span></button></li>`).join('')}</ol><p class="support-copy">所有节点均可探索。点亮记录验证条件与来源，<br>不以课时、打卡或练习次数代替能力判断。</p></section>`;
+      <details class="disclosure"><summary>怎样读这张技能树</summary><p>数字表示建议阅读顺序，所有基础节点和分支均可浏览。分支不互斥，也不把你固定成某一种风格。</p><div class="stage-legend"><span>未探索</span><i>→</i><span>已理解</span><i>→</i><span>练习中</span><i>→</i><span>已点亮</span></div><p>“已理解”记录知识学习；“已点亮”记录具体条件下的手动验证。完成基础知识不代表已经掌握全部基础动作。</p><p>这是当前版本的发展框架，课程与点亮清单仍需教练审校。</p></details>`;
+  }
+  function branchPage(id) {
+    const b=getBranch(id);if(!b)return emptyFlow('未找到这个分支','回到技能树继续探索。','/home','回到技能树');
+    topbar('分支探索','/home');navigation('home');
+    const ready=foundationLearned(),chosen=state.primaryBranch===id,entry=getSkill(b.entry);
+    return `<div class="intro"><span class="eyebrow">CHOOSE YOUR DIRECTION</span><div class="branch-title-icon">${icon(b.icon,28)}</div><h1>${b.title}</h1><p>${b.summary}</p></div><section class="branch-goal"><h2>这一支，解决什么问题？</h2><p>${b.outcome}</p></section>
+      <div class="branch-gate ${ready?'ready':''}"><div class="between"><strong>${ready?'基础知识已完成':'基础共修 · '+foundationCount()+' / 12 已理解'}</strong>${icon(ready?'check':'book',18)}</div><p>${ready?'可以设为主修，也可以随时换一个方向。':'先预览发展方向。完成 12 项基础知识的理解后，即可设为主修。'}</p>${ready?button(chosen?'✓ 当前主修方向':'优先学习这一支 '+icon('arrow',17),'select-branch','primary full',`data-id="${id}" ${chosen?'disabled':''}`):button(state.interestedBranch===id?'✓ 已标记感兴趣':'先标记感兴趣','interest-branch','secondary full',`data-id="${id}"`)}${!ready?`<button class="text-link" data-action="continue-foundations">继续基础 · ${mapData.labels[nextFoundation().id]} ${icon('arrow',15)}</button>`:''}</div>
+      <section class="section"><div class="section-head"><h2>分支路线</h2><span class="tiny muted">1 张入门卡 · 2 项规划</span></div><ol class="branch-route"><li><span class="route-number">01</span><button class="tree-node" data-action="open-skill" data-id="${entry.id}"><div class="between"><span class="tiny muted">可学习 · 入门节点</span>${statusBadge(entry.id)}</div><h3>${entry.title}</h3><p>知识、练习与点亮标准已编排</p><span class="tree-node-footer">打开知识卡 ${icon('chevron',15)}</span></button></li>${b.themes.slice(1).map((t,i)=>`<li class="planned"><span class="route-number">0${i+2}</span><div class="planned-node"><span class="badge">内容规划中</span><h3>${t}</h3><p>当前展示方向，完整课程尚未上线。</p></div></li>`).join('')}</ol></section>
+      <p class="note">主修是一段时间的学习优先级，不是固定风格。分支之间可以交叉学习，训练难度由实际表现和教练反馈调整。</p>${chosen?button('开始主修练习 '+icon('arrow',16),'open-practice','primary full',`data-id="${b.entry}"`):''}`;
   }
   function skillPage(id) {
     const s=getSkill(id);if(!s)return emptyFlow('未找到这个节点','回到技能树选择一个节点。','/home','回到技能树');
-    topbar('基础路径 · '+String(pathSkills.indexOf(s)+1).padStart(2,'0'),'/home');navigation('home');
-    const evidence=evidenceFor(id),stage=skillStage(id),previous=getSkill(s.prerequisite),next=pathSkills[pathSkills.indexOf(s)+1];
+    topbar(s.branch?getBranch(s.branch).title+' · 入门':'基础共修 · '+String(mapData.foundations.indexOf(s.id)+1).padStart(2,'0'),s.branch?'/branch/'+s.branch:'/home');navigation('home');
+    const evidence=evidenceFor(id),stage=skillStage(id),previous=getSkill(s.prerequisite),next=nextSkill(s);
     const intro=`<div class="skill-heading"><div class="between"><span class="eyebrow">${s.domain} / ${s.short}</span>${statusBadge(id)}</div><h1>${s.title}</h1><p>${s.subtitle}</p><button class="text-link" data-action="focus-skill" data-id="${id}">${state.focusSkill===s.id?'✓ 当前攻克节点':'设为正在攻克'}</button></div>`;
     const tabs=`<div class="tabs skill-tabs" role="tablist" aria-label="技能内容">${[['knowledge','知识'],['practice','练习'],['criteria','点亮标准']].map(([key,label])=>`<button class="tab ${skillTab===key?'active':''}" role="tab" aria-selected="${skillTab===key}" data-action="skill-tab" data-tab="${key}">${label}</button>`).join('')}</div>`;
     let body='';
     if(skillTab==='knowledge') body=`<section class="knowledge-block"><h2>为什么要练它</h2><p>${s.purpose}</p></section>${previous?`<button class="prerequisite" data-action="open-skill" data-id="${previous.id}"><span>建议先了解：${previous.title}</span>${icon('chevron',15)}</button>`:'<div class="prerequisite"><span>路径起点 · 无前置节点</span>'+icon('flag',16)+'</div>'}<div class="principle-strip"><span>观察起点</span><i>→</i><span>完成任务</span><i>→</i><span>恢复准备</span></div><section class="knowledge-block"><h2>三个观察重点</h2>${s.points.map((p,i)=>`<div class="point"><span>0${i+1}</span><div>${p}</div></div>`).join('')}<p class="muted">${s.why}</p></section><details class="disclosure"><summary>常见问题，怎样观察</summary>${s.mistakes.map(m=>`<div class="mistake"><h3>${m.symptom}</h3><p>${m.observe}</p></div>`).join('')}</details><details class="disclosure" ${quizChecked?'open':''}><summary>检查一下理解 <span class="muted">选做</span></summary><div class="quiz-panel"><h3>${s.question}</h3>${s.choices.map((c,i)=>`<button class="quiz-choice ${quizAnswer===i?'selected':''}" data-action="answer" data-id="${i}" aria-pressed="${quizAnswer===i}"><span>${String.fromCharCode(65+i)}</span>${c}</button>`).join('')}${quizChecked?`<p class="quiz-result ${quizAnswer!==s.answer?'wrong':''}" role="status">${quizAnswer===s.answer?'理解正确。':'再想一想。'}${s.questionWhy}</p>`:button('检查答案','check-answer','secondary full',quizAnswer===null?'disabled':'')}</div></details>${sourceLinks(s)}<div class="flow-actions">${button((stage?'回顾完成，看看怎么练':'我已理解，看看怎么练')+' '+icon('arrow',16),'understand-skill','primary full',`data-id="${id}"`)}<p class="support-copy">记录为“已理解”，不会直接点亮技能。</p></div>`;
-    else if(skillTab==='practice')body=`<div class="note">${icon('target',18)}<span>本次只选一个练习。计时记录会关联到这个节点。</span></div>${s.drills.map((d,i)=>`<section class="drill-card"><span class="eyebrow">PRACTICE 0${i+1}</span><h2>${d.title}</h2><p class="tiny muted">${d.setting}</p><ol>${d.steps.map(t=>`<li>${t}</li>`).join('')}</ol><div class="drill-cue">${icon('target',17)}<span>${d.cue}</span></div>${button('开始这项练习 '+icon('arrow',16),'skill-drill','primary full',`data-id="${id}" data-drill="${i}"`)}</section>`).join('')}<p class="support-copy">配合与打靶任务需教练安排；可先做徒手版本。<br>计时完成只记录经历，不自动点亮。</p>`;
+    else if(skillTab==='practice')body=(foundationLearned()&&!state.primaryBranch?`<div class="branch-unlocked"><strong>基础知识已学完</strong><button class="text-link" data-action="go" data-route="/home">选择一个主修分支 ${icon('arrow',15)}</button></div>`:'')+`<div class="note">${icon('target',18)}<span>本次只选一个练习。计时记录会关联到这个节点。</span></div>${s.drills.map((d,i)=>`<section class="drill-card"><span class="eyebrow">PRACTICE 0${i+1}</span><h2>${d.title}</h2><p class="tiny muted">${d.setting}</p><ol>${d.steps.map(t=>`<li>${t}</li>`).join('')}</ol><div class="drill-cue">${icon('target',17)}<span>${d.cue}</span></div>${button('开始这项练习 '+icon('arrow',16),'skill-drill','primary full',`data-id="${id}" data-drill="${i}"`)}</section>`).join('')}<p class="support-copy">配合与打靶任务需教练安排；可先做徒手版本。<br>计时完成只记录经历，不自动点亮。</p>`;
     else body=`<div class="criteria-intro"><h2>什么情况下，可以点亮？</h2><p>理解用途，完成下列观察，再记录一次具体情境和反馈。计时与次数不作为通关标准。</p></div><ol class="criteria-list">${s.criteria.map(c=>`<li>${icon('check',17)}<span>${c}</span></li>`).join('')}</ol><p class="note">${s.boundary}</p><div class="stage-legend"><span>未探索</span><i>→</i><span>已理解</span><i>→</i><span>练习中</span><i>→</i><span>已点亮</span></div>${button('记录验证，点亮节点 '+icon('spark',17),'go','primary full',`data-route="/evidence/${id}"`)}<p class="support-copy">自评与教练反馈分开标注。此处不进行自动能力认证。</p>${evidence.length?`<section class="section"><h2>这个节点的验证</h2>${evidence.map(e=>evidenceCard(e)).join('')}</section>`:''}`;
-    return intro+tabs+`<div role="tabpanel">${body}</div><div class="skill-bottom"><button class="text-link" data-action="coach-context" data-id="${id}">${icon('spark',17)} 围绕这个节点问教练</button>${next?`<button class="next-path" data-action="open-skill" data-id="${next.id}"><div><span class="tiny muted">关联下一步 · 随时可探索</span><h3>${next.title}</h3><p>${s.nextUse}</p></div>${icon('chevron',17)}</button>`:''}</div>`;
+    return intro+tabs+`<div role="tabpanel">${body}</div><div class="skill-bottom"><button class="text-link" data-action="coach-context" data-id="${id}">${icon('spark',17)} 围绕这个节点问教练</button>${next?`<button class="next-path" data-action="open-skill" data-id="${next.id}"><div><span class="tiny muted">关联下一步 · 随时可探索</span><h3>${next.title}</h3><p>${s.nextUse}</p></div>${icon('chevron',17)}</button>`:`<button class="next-path" data-action="go" data-route="${s.branch?'/branch/'+s.branch:'/home'}"><div><span class="tiny muted">${s.branch?'继续规划分支路线':'回到全景图，查看基础进度'}</span><h3>${s.branch?'查看'+getBranch(s.branch).title:'探索后续分支'}</h3></div>${icon('chevron',17)}</button>`}</div>`;
   }
   function evidenceCard(e) {
     const s=getSkill(e.skillId),record=state.records.find(r=>r.id===e.recordId);
@@ -220,8 +250,9 @@
     delete state.evidenceDrafts[id];save();return '';
   }
   function pathTrainPage() {
-    topbar();navigation('train');const f=focusedSkill();
-    return `${resumeCard()}<div class="intro"><span class="eyebrow">PRACTICE WITH PURPOSE</span><h1>练一个明确的能力。</h1><p>从技能出发，选择本次要观察的重点。</p></div><section class="training-hero">${badge('正在攻克','dark')}<h2>${f.title}</h2><p>${f.drills[0].cue}</p>${button('选择配套练习 '+icon('arrow',17),'open-practice','primary full',`data-id="${f.id}"`)}</section><section class="section"><div class="section-head"><h2>基础路径练习</h2><span class="tiny muted">4 个节点</span></div>${pathSkills.map(s=>`<button class="task-card" data-action="open-practice" data-id="${s.id}"><span class="task-icon">${icon(s.pose==='step'?'foot':'target',22)}</span><span class="grow"><h3>${s.title}</h3><p>${s.drills.length} 种练法 · ${stages[skillStage(s.id)]}</p></span>${icon('chevron',16)}</button>`).join('')}</section><button class="task-card" data-action="prepare" data-id="${f.id}" data-type="自由回合"><span class="task-icon orange">${icon('clock',22)}</span><span class="grow"><h3>自由回合</h3><p>保留计时，不归入单项技能验证</p></span>${icon('chevron',16)}</button><p class="support-copy">无需设备即可体验。计时和实际动作表现分别记录。</p>`;
+    topbar();navigation('train');const f=focusedSkill(),primary=getBranch(state.primaryBranch);
+    const trainingRow=s=>`<button class="task-card" data-action="open-practice" data-id="${s.id}"><span class="task-icon">${icon(s.pose==='step'?'foot':'target',22)}</span><span class="grow"><h3>${s.title}</h3><p>${s.drills.length} 种练法 · ${stages[skillStage(s.id)]}</p></span>${icon('chevron',16)}</button>`;
+    return `${resumeCard()}<div class="intro"><span class="eyebrow">PRACTICE WITH PURPOSE</span><h1>练一个明确的能力。</h1><p>从技能出发，选择本次要观察的重点。</p></div><section class="training-hero">${badge('正在攻克','dark')}<h2>${f.title}</h2><p>${f.drills[0].cue}</p>${button('选择配套练习 '+icon('arrow',17),'open-practice','primary full',`data-id="${f.id}"`)}</section>${primary?`<section class="section"><div class="section-head"><h2>主修 · ${primary.title}</h2><button class="text-link" data-action="open-branch" data-id="${primary.id}">查看路线 ${icon('chevron',14)}</button></div>${primary.skills.map(id=>trainingRow(getSkill(id))).join('')}</section>`:''}<section class="section"><div class="section-head"><h2>基础共修练习</h2><span class="tiny muted">12 个节点</span></div><details class="disclosure"><summary>按能力选择基础练习</summary>${foundationSkills.map(trainingRow).join('')}</details></section><details class="disclosure"><summary>探索分支入门练习</summary>${mapData.branches.map(b=>trainingRow(getSkill(b.entry))).join('')}</details><button class="task-card" data-action="prepare" data-id="${f.id}" data-type="自由回合"><span class="task-icon orange">${icon('clock',22)}</span><span class="grow"><h3>自由回合</h3><p>保留计时，不归入单项技能验证</p></span>${icon('chevron',16)}</button><p class="support-copy">无需设备即可体验。计时和实际动作表现分别记录。</p>`;
   }
   function pathGrowthPage() {
     topbar();navigation('growth');const lit=pathSkills.filter(s=>skillStage(s.id)===3).length,practices=state.records.filter(isPractice);
@@ -229,13 +260,13 @@
     if(growthTab==='evidence')content=state.skillEvidence.length?state.skillEvidence.map(evidenceCard).join(''):`<div class="empty">${icon('spark',29)}<h3>让进步有据可查</h3><p>完成节点观察标准后，记录条件和反馈，留下第一条验证。</p>${button('查看点亮标准','open-criteria','primary full',`data-id="${focusedSkill().id}"`)}</div>`;
     else if(growthTab==='skills')content=pathSkills.map(s=>`<button class="skill-row" data-action="open-skill" data-id="${s.id}"><span class="task-icon">${icon(skillStage(s.id)===3?'check':'target',20)}</span><span class="grow"><h3>${s.title}</h3><p>${skillRecords(s.id).length} 次计时 · ${evidenceFor(s.id).length} 条验证</p></span>${statusBadge(s.id)}</button>`).join('');
     else content=state.records.length?`<div class="history-list">${historyRows(state.records)}</div>`:`<div class="empty">${icon('book',29)}<h3>练过的，都可以留下</h3><p>从技能进入练习，结束后计时与回合会自动保存。</p>${button('选择一个练习','go','primary full','data-route="/train"')}</div>`;
-    return `<div class="intro"><span class="eyebrow">PROGRESS WITH EVIDENCE</span><h1>看见能力怎样生长。</h1><p>理解、练习和情境验证，分别记录。</p></div><section class="growth-overview"><div><strong>${lit}<small> / 4</small></strong><span>节点点亮</span></div><div><strong>${state.skillEvidence.length}</strong><span>情境验证</span></div><div><strong>${practices.length}</strong><span>计时练习</span></div></section><p class="support-copy">点亮依据手动填写的观察，来源清楚标注。<br>示例与演示快进不计入计时练习。</p><div class="tabs" role="tablist" aria-label="成长内容">${[['evidence','验证记录'],['skills','技能变化'],['history','练习历史']].map(([key,label])=>`<button class="tab ${growthTab===key?'active':''}" role="tab" aria-selected="${growthTab===key}" data-action="growth-tab" data-tab="${key}">${label}</button>`).join('')}</div><div role="tabpanel">${content}</div>`;
+    return `<div class="intro"><span class="eyebrow">PROGRESS WITH EVIDENCE</span><h1>看见能力怎样生长。</h1><p>理解、练习和情境验证，分别记录。</p></div><section class="growth-overview"><div><strong>${lit}<small> / ${pathSkills.length}</small></strong><span>可练节点点亮</span></div><div><strong>${state.skillEvidence.length}</strong><span>情境验证</span></div><div><strong>${practices.length}</strong><span>计时练习</span></div></section><p class="support-copy">点亮依据手动填写的观察，来源清楚标注。<br>示例与演示快进不计入计时练习。</p><div class="tabs" role="tablist" aria-label="成长内容">${[['evidence','验证记录'],['skills','技能变化'],['history','练习历史']].map(([key,label])=>`<button class="tab ${growthTab===key?'active':''}" role="tab" aria-selected="${growthTab===key}" data-action="growth-tab" data-tab="${key}">${label}</button>`).join('')}</div><div role="tabpanel">${content}</div>`;
   }
   function coachReply(question,id) {
     const selected=getSkill(id)||focusedSkill(),q=question.trim();
     const matches=pathSkills.map(s=>({s,n:(q.includes(s.title)?10:0)+s.keywords.filter(k=>q.includes(k)).length})).sort((a,b)=>b.n-a.n);
     const scoped=/怎么练|怎样练|点亮|标准|下一步|这个|本节点|理解|重点|卡住|为什么/.test(q);
-    if(!matches[0].n&&!scoped)return {skillId:selected.id,question:q,kind:'unknown',text:'目前只收录这条基础路径，未检索到足够相关的内容。可以选择一个节点，再问“怎么练”或“怎样点亮”；其他问题请先记下，与教练讨论。'};
+    if(!matches[0].n&&!scoped)return {skillId:selected.id,question:q,kind:'unknown',text:'目前只检索已编写的知识卡，未找到足够相关的内容。可以选择一个节点，再问“怎么练”或“怎样点亮”；其他问题请先记下，与教练讨论。'};
     const s=matches[0].n?matches[0].s:selected;
     let text,kind='knowledge';
     if(/点亮|标准|掌握|验证/.test(q)){kind='criteria';text=`${s.title}当前为「${stages[skillStage(s.id)]}」。需要先理解知识，再在具体条件下逐项观察：\n${s.criteria.map((c,i)=>`${i+1}. ${c}`).join('\n')}\n${s.boundary}`;}
@@ -252,7 +283,7 @@
   }
   function coachPage() {
     topbar();navigation('coach');const s=getSkill(coachSkill)||focusedSkill();
-    return `<div class="intro"><span class="eyebrow">YOUR CORNER</span><h1>把问题，问得更具体。</h1><p>围绕一个节点，理解要点与下一步。</p></div><div class="coach-disclosure">${icon('spark',18)}<span><strong>知识库助手 · 原型</strong><br>本地检索 4 个节点，尚未接入大模型。<br>不读取视频，不自动评价动作。</span></div><label class="field-label" for="coach-skill">当前讨论的技能</label><select class="input" id="coach-skill">${pathSkills.map(x=>`<option value="${x.id}" ${x.id===s.id?'selected':''}>${x.title}</option>`).join('')}</select><div class="coach-prompts">${['这个节点怎么练？','怎样才能点亮？','这个节点的重点是什么？'].map(q=>`<button data-action="coach-prompt" data-value="${q}">${q} ${icon('arrow',14)}</button>`).join('')}</div><div class="coach-conversation" aria-live="polite">${state.coachMessages.map(m=>`<div class="question-bubble">${esc(m.question)}</div><article class="answer-bubble"><span class="eyebrow">${m.kind==='unknown'?'检索范围说明':'知识卡检索 · '+getSkill(m.skillId).title}</span><p>${esc(m.text)}</p>${m.kind==='unknown'?'':`<button class="text-link" data-action="${m.kind==='practice'?'open-practice':m.kind==='criteria'?'open-criteria':'open-skill'}" data-id="${m.skillId}">查看对应知识卡 ${icon('chevron',14)}</button><a class="tiny source-link" href="${pathData.sources[0].url}" target="_blank" rel="noopener noreferrer">参考来源：England Boxing · ${getSkill(m.skillId).sourcePages}</a><span class="tiny muted">练习和点亮清单为本原型编排，待教练审校。</span>`}</article>`).join('')}<div id="coach-answer-end"></div></div><form id="coach-form" class="coach-composer"><label class="field-label" for="coach-question">你的问题</label><textarea id="coach-question" name="question" class="input" maxlength="400" required placeholder="例如：移动中刺拳为什么容易失衡？">${esc(state.coachDraft||'')}</textarea><button class="button primary full" type="submit">查找相关知识 ${icon('arrow',17)}</button></form><p class="support-copy">问题仅保存在当前浏览器，不发送给外部 AI 服务。</p>`;
+    return `<div class="intro"><span class="eyebrow">YOUR CORNER</span><h1>把问题，问得更具体。</h1><p>围绕一个节点，理解要点与下一步。</p></div><div class="coach-disclosure">${icon('spark',18)}<span><strong>知识库助手 · 原型</strong><br>本地检索 ${pathSkills.length} 个节点，尚未接入大模型。<br>不读取视频，不自动评价动作。</span></div><label class="field-label" for="coach-skill">当前讨论的技能</label><select class="input" id="coach-skill">${pathSkills.map(x=>`<option value="${x.id}" ${x.id===s.id?'selected':''}>${x.title}</option>`).join('')}</select><div class="coach-prompts">${['这个节点怎么练？','怎样才能点亮？','这个节点的重点是什么？'].map(q=>`<button data-action="coach-prompt" data-value="${q}">${q} ${icon('arrow',14)}</button>`).join('')}</div><div class="coach-conversation" aria-live="polite">${state.coachMessages.map(m=>`<div class="question-bubble">${esc(m.question)}</div><article class="answer-bubble"><span class="eyebrow">${m.kind==='unknown'?'检索范围说明':'知识卡检索 · '+getSkill(m.skillId).title}</span><p>${esc(m.text)}</p>${m.kind==='unknown'?'':`<button class="text-link" data-action="${m.kind==='practice'?'open-practice':m.kind==='criteria'?'open-criteria':'open-skill'}" data-id="${m.skillId}">查看对应知识卡 ${icon('chevron',14)}</button><a class="tiny source-link" href="${pathData.sources[0].url}" target="_blank" rel="noopener noreferrer">参考来源：England Boxing · ${getSkill(m.skillId).sourcePages}</a><span class="tiny muted">练习和点亮清单为本原型编排，待教练审校。</span>`}</article>`).join('')}<div id="coach-answer-end"></div></div><form id="coach-form" class="coach-composer"><label class="field-label" for="coach-question">你的问题</label><textarea id="coach-question" name="question" class="input" maxlength="400" required placeholder="例如：移动中刺拳为什么容易失衡？">${esc(state.coachDraft||'')}</textarea><button class="button primary full" type="submit">查找相关知识 ${icon('arrow',17)}</button></form><p class="support-copy">问题仅保存在当前浏览器，不发送给外部 AI 服务。</p>`;
   }
 
   function homePage() { return treePage(); }
@@ -371,7 +402,7 @@
   }
   function profilePage() {
     topbar('个人与设备','/home'); navigation('profile');
-    return `<div class="profile-card"><span class="avatar">${esc(state.profile.name.slice(0,1))}</span><div><h1>${esc(state.profile.name)}</h1><p>${esc(state.profile.experience)} · ${esc(state.profile.stance)}</p></div></div><div class="card"><div class="between"><span class="tiny muted">我的训练目标</span>${badge('本地体验档案')}</div><h2 style="margin-top:10px">${esc(state.profile.goal)}</h2><p class="small muted" style="margin-top:8px">沿着技能路径，积累自己的训练证据。</p></div><div class="section card" style="padding:0 17px"><button class="menu-button" data-action="go" data-route="/profile/edit">${icon('user',18)}<span>调整个人档案</span>${icon('chevron',15)}</button><button class="menu-button" data-action="devices">${icon('bluetooth',18)}<span>设备与辅助记录</span><small>${state.demoTarget?'1 个模拟连接':'未接入真实设备'}</small>${icon('chevron',15)}</button><button class="menu-button" data-action="path">${icon('flag',18)}<span>完整发展路线</span>${icon('chevron',15)}</button></div><div class="section card" style="padding:0 17px"><button class="menu-button" data-action="export">${icon('download',18)}<span>导出本地体验记录</span>${icon('chevron',15)}</button><button class="menu-button" data-action="blank">${icon('user',18)}<span>清空本地体验进度</span>${icon('chevron',15)}</button><button class="menu-button" data-action="reset">${icon('reset',18)}<span>载入示例档案</span>${icon('chevron',15)}</button><button class="menu-button" data-action="about">${icon('info',18)}<span>关于这个原型</span>${icon('chevron',15)}</button></div><p class="support-copy">${storageAvailable?'进度仅保存在当前浏览器；清理浏览器数据会移除记录。':'浏览器存储不可用：当前进度只保留在本次打开期间。'}<br>ROUND · Prototype 0.3</p>`;
+    return `<div class="profile-card"><span class="avatar">${esc(state.profile.name.slice(0,1))}</span><div><h1>${esc(state.profile.name)}</h1><p>${esc(state.profile.experience)} · ${esc(state.profile.stance)}</p></div></div><div class="card"><div class="between"><span class="tiny muted">我的训练目标</span>${badge('本地体验档案')}</div><h2 style="margin-top:10px">${esc(state.profile.goal)}</h2><p class="small muted" style="margin-top:8px">沿着技能路径，积累自己的训练证据。</p></div><div class="section card" style="padding:0 17px"><button class="menu-button" data-action="go" data-route="/profile/edit">${icon('user',18)}<span>调整个人档案</span>${icon('chevron',15)}</button><button class="menu-button" data-action="devices">${icon('bluetooth',18)}<span>设备与辅助记录</span><small>${state.demoTarget?'1 个模拟连接':'未接入真实设备'}</small>${icon('chevron',15)}</button><button class="menu-button" data-action="path">${icon('flag',18)}<span>完整发展路线</span>${icon('chevron',15)}</button></div><div class="section card" style="padding:0 17px"><button class="menu-button" data-action="export">${icon('download',18)}<span>导出本地体验记录</span>${icon('chevron',15)}</button><button class="menu-button" data-action="blank">${icon('user',18)}<span>清空本地体验进度</span>${icon('chevron',15)}</button><button class="menu-button" data-action="reset">${icon('reset',18)}<span>载入示例档案</span>${icon('chevron',15)}</button><button class="menu-button" data-action="about">${icon('info',18)}<span>关于这个原型</span>${icon('chevron',15)}</button></div><p class="support-copy">${storageAvailable?'进度仅保存在当前浏览器；清理浏览器数据会移除记录。':'浏览器存储不可用：当前进度只保留在本次打开期间。'}<br>ROUND · Prototype 0.4</p>`;
   }
   function editProfilePage() {
     topbar('个人档案','/profile'); navigation('profile'); const p=state.profile;
@@ -402,6 +433,7 @@
     $('#phone').classList.toggle('training',route==='/session'&&Boolean(state.workout));
     let html;
     if(route==='/home'||route==='/')html=homePage();
+    else if(route.startsWith('/branch/'))html=branchPage(route.split('/')[2]);
     else if(route.startsWith('/skill/'))html=skillPage(route.split('/')[2]);
     else if(route.startsWith('/evidence/'))html=evidencePage(route.split('/')[2]);
     else if(route==='/coach')html=coachPage();
@@ -428,14 +460,20 @@
     if(e.target.classList.contains('modal-backdrop')){closeModal();return;}
     const b=e.target.closest('[data-action]'); if(!b||b.disabled)return;
     const a=b.dataset.action, id=b.dataset.id, value=b.dataset.value;
-    if(a==='tree-domain'){treeDomain=value;render(false);}
+    if(a==='open-branch')go('/branch/'+id);
+    else if(a==='select-branch'){const error=selectBranch(id);if(error)toast(error);else{render(false);toast('已设为主修，训练页会优先展示这个方向。');}}
+    else if(a==='interest-branch'){if(getBranch(id)){state.interestedBranch=id;save();render(false);toast('已标记兴趣，基础学完后再设为主修。');}}
+    else if(a==='continue-foundations'){skillTab='knowledge';quizAnswer=null;quizChecked=false;go('/skill/'+nextFoundation().id);}
+    else if(a==='map-style')modal('风格是逐渐形成的','<p>外围控制、反击与压迫可以组合使用。先在基础和分支练习中积累观察，再按身体特点、习惯与对手情况逐渐形成自己的打法。</p><p>后续规划：回合复盘、情境选择、风格组合。当前尚未上线对应课程与自动评估。</p>',button('回到全景图','close-modal','primary full'));
+    else if(a==='map-support')modal('贯穿所有分支的能力','<h3>身体能力</h3><p>平衡与协调、力量与速度、有氧与回合耐力、活动度与恢复。</p><h3>观察与决策</h3><p>识别距离、时机和对方反应，将线索连接到行动。</p><h3>规则与心理</h3><p>规则、训练边界、专注、情绪调节与比赛准备。</p><p class="tiny muted">这些是发展框架；除基础卡涉及的内容外，独立课程与测评仍在规划中。</p>',button('回到全景图','close-modal','primary full'));
+    else if(a==='tree-domain'){treeDomain=value;render(false);}
     else if(['open-skill','open-practice','open-criteria'].includes(a)){
       skillTab=a==='open-practice'?'practice':a==='open-criteria'?'criteria':'knowledge';quizAnswer=null;quizChecked=false;go('/skill/'+id);
     }
     else if(a==='skill-tab'){skillTab=b.dataset.tab;render(false);}
     else if(a==='focus-skill'){state.focusSkill=Number(id);save();render(false);toast('已设为正在攻克的节点。');}
     else if(a==='understand-skill'){
-      state.skillProgress[id]={...skillProgress(id),understood:true,understoodAt:new Date().toISOString()};save();skillTab='practice';render();toast('已记录理解，接下来选择一种练习。');
+      state.skillProgress[id]={...skillProgress(id),understood:true,understoodAt:new Date().toISOString()};save();skillTab='practice';render();toast(foundationLearned()&&!state.primaryBranch?'基础知识已学完，可以选择主修分支了。':'已记录理解，接下来选择一种练习。');
     }
     else if(a==='skill-drill'){
       if(state.workout){prepare(id);return;}
@@ -491,7 +529,7 @@
     else if(a==='toggle-clip'){const art=$('#clip-visual .boxer');const playing=art.classList.toggle('is-playing');b.textContent=playing?'暂停示意':'继续播放';}
     else if(a==='devices')deviceModal();
     else if(a==='toggle-target'){state.demoTarget=!state.demoTarget;save();deviceModal();toast(state.demoTarget?'已模拟连接墙靶，未采集真实数据。':'已断开模拟连接。');}
-    else if(a==='path')pathModal();
+    else if(a==='path')go('/home');
     else if(a==='close-modal'){closeModal();render(false);}
     else if(a==='session-info')modal('这是一段交互体验','<p>计时实际运行；动作示意、录像与墙靶连接均为模拟。使用快进时，仅记录实际运行的练习计时，不把跳过的时长计入记录。</p>',button('知道了','close-modal','primary full'));
     else if(a==='about')modal('让技能，一项一项生长',`<p>ROUND 是拳击学习与训练的手机端交互原型。你可以体验技能树、节点练习、手动验证和成长记录。AI 教练页目前为本地知识检索，未接入大模型。</p><ul class="list-info"><li>课程与示意动画：原型内容，待教练审校。</li><li>预置记录：清楚标为“示例记录”。</li><li>本次操作：保存为“体验记录”。</li><li>相机、语音、设备：模拟，不采集真实数据。</li><li>进度：仅保存在当前浏览器，可导出或重置。</li></ul>`,button('开始体验','close-modal','primary full'));
