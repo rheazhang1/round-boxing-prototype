@@ -171,3 +171,113 @@ body{font-size:15px}
 .toast{font-size:13px}
 @media(max-width:359px){.screen h1{font-size:23px}.screen{padding-left:16px;padding-right:16px}.today-card{padding:18px}.today-card h2{font-size:23px}.task-sequence{gap:8px;font-size:11px}.growth-totals{gap:16px}.growth-totals>span{font-size:11px}.week-dots span{width:21px;height:21px}.flow-steps{font-size:11px}.week-card{gap:8px;padding:15px}.today-card .tiny{font-size:11px}.timer-ring{width:205px;height:205px;margin:17px auto}.session-controls{gap:8px}.session-controls .button{font-size:14px;padding-left:12px;padding-right:12px}}
 @media(max-width:760px){.topbar{height:calc(62px + env(safe-area-inset-top))}.prototype-strip{font-size:10px}.screen{padding-bottom:25px}}
+
+/* v0.3 — a readable, evidence-led skill path. No remote assets. */
+.tree-intro h1{font-size:27px;line-height:1.4;max-width:310px}
+.tree-intro p{font-size:13px;margin-top:10px}
+.domain-switch{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:5px;background:#eaece4;border-radius:15px;margin-bottom:20px}
+.domain-switch .chip{border:0;background:transparent;font-size:14px;min-height:41px;border-radius:11px}
+.domain-switch .chip.active{background:#fff;color:var(--green);box-shadow:0 2px 6px #263c3108}
+.focus-card{padding:21px;border-radius:21px;background:#263e33;color:#fff;box-shadow:0 9px 22px #263e3310}
+.focus-card .eyebrow{color:#bccfc0;letter-spacing:2px;font-size:11px}
+.focus-card .badge{background:#ffffff16;color:#e5eedd}
+.focus-link{display:flex;align-items:center;justify-content:space-between;gap:15px;text-align:left;width:100%;background:none;color:inherit;padding:18px 0}
+.focus-link h2{font-size:24px;letter-spacing:-.5px;line-height:1.4}
+.focus-link p{font-size:13px;line-height:1.8;color:#c3d0c2;margin-top:8px}
+.focus-link>svg{flex-shrink:0;color:#e99b70}
+.focus-footer{display:flex;align-items:center;justify-content:space-between;gap:8px;border-top:1px solid #ffffff20;padding-top:9px;color:#bdd0bd;font-size:11px}
+.focus-footer button{display:flex;align-items:center;gap:6px;background:none;color:#eef4e7;font-size:12px;min-height:38px}
+.domain-note{padding:20px;background:#e8eee5;border-radius:18px;margin-bottom:17px}
+.domain-note h2{margin:10px 0;font-size:20px}
+.domain-note p{font-size:14px;line-height:1.85;color:#5a6c60;margin-bottom:15px}
+.tree-section{margin-top:27px}
+.tree-section .section-head{align-items:center;margin-bottom:22px}
+.tree-section .section-head p{margin-top:5px}
+.path-count{font-size:25px;font-weight:700;white-space:nowrap;color:var(--green)}
+.path-count small{font-size:11px;font-weight:400;color:var(--muted)}
+.skill-tree{list-style:none;padding:0;margin:0}
+.tree-step{position:relative;display:flex;gap:13px;padding-bottom:18px;align-items:flex-start}
+.tree-step:not(:last-child):before{content:'';position:absolute;left:17px;top:36px;bottom:0;border-left:2px dashed #d4ddd0}
+.tree-step.is-lit:before{border-left:2px solid #719b77}
+.tree-index{position:relative;margin-top:14px;background:var(--paper);border:1px solid #cbd5c7;border-radius:50%;width:36px;height:36px;flex-shrink:0;display:grid;place-items:center;font-size:12px;color:#788a78;font-weight:600}
+.is-focus .tree-index{background:var(--orange-soft);color:var(--orange);border-color:#e7bba3}
+.is-lit .tree-index{background:var(--green);color:#fff;border-color:var(--green)}
+.tree-node{width:100%;min-width:0;padding:17px 16px 12px;background:#fff;border:1px solid var(--line);border-radius:17px;text-align:left}
+.is-focus .tree-node{border-color:#d4ba9c}
+.is-lit .tree-node{border-color:#a8c3aa;background:#fbfdf8}
+.tree-node h3{font-size:17px;margin:12px 0 7px}
+.tree-node p{font-size:12px;line-height:1.8;color:var(--muted)}
+.tree-node-footer{margin-top:14px;padding-top:11px;border-top:1px solid #f0f1ea;display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#74816f}
+.badge.lit{background:#deebdd;color:#2e6242}
+.skill-heading{padding:7px 0 6px}
+.skill-heading h1{font-size:29px;margin:17px 0 10px;letter-spacing:-1px}
+.skill-heading>p{font-size:14px;color:var(--muted);line-height:1.8}
+.skill-heading .text-link{margin-top:6px;color:#597652;font-size:12px}
+.skill-tabs{margin-top:10px;margin-bottom:21px;position:sticky;top:-6px;background:var(--paper);z-index:4;padding-top:6px}
+.knowledge-block{margin:20px 0}
+.knowledge-block>p{font-size:14px;line-height:1.9;margin-top:12px}
+.knowledge-block h2{font-size:17px}
+.prerequisite{display:flex;width:100%;justify-content:space-between;gap:10px;align-items:center;padding:13px 14px;border-radius:12px;background:#e9eee5;color:#5c7159;font-size:12px;line-height:1.7;text-align:left;min-height:48px}
+.principle-strip{display:flex;align-items:center;justify-content:space-between;gap:4px;padding:21px 8px;margin:15px 0;background:#fff;border:1px solid var(--line);border-radius:14px;color:#58725f;font-size:12px}
+.principle-strip i{font-style:normal;color:#b2bcae}
+.mistake{margin:0 0 19px}
+.mistake h3{font-size:14px}
+.mistake p{font-size:14px;color:var(--muted);line-height:1.85;margin-top:7px}
+.source-link{display:inline-flex;align-items:center;gap:6px;color:var(--green);font-size:12px;line-height:1.7;text-decoration:underline;word-break:break-word;padding:5px 0;min-height:40px}
+.source-detail>.tiny{padding-bottom:15px;font-size:12px}
+.skill-bottom{padding-top:20px;margin-top:22px;border-top:1px solid var(--line)}
+.skill-bottom>.text-link{margin:auto}
+.skill-bottom .next-path{margin-top:14px}
+.skill-bottom h3{margin-top:6px}
+.drill-card{margin-top:18px;padding:20px 18px;background:#fff;border:1px solid var(--line);border-radius:19px}
+.drill-card h2{font-size:17px;line-height:1.6;margin:10px 0 6px}
+.drill-card ol,.setup-steps{padding-left:21px;margin:18px 0;font-size:14px;line-height:1.9;color:#546158}
+.drill-card li,.setup-steps li{padding-left:3px;margin-bottom:10px}
+.drill-cue{display:flex;align-items:flex-start;gap:8px;background:#f2f4ec;border-radius:11px;padding:12px;font-size:13px;line-height:1.7;margin-bottom:16px}
+.drill-cue svg{flex-shrink:0;margin-top:3px}
+.criteria-intro h2{font-size:18px}
+.criteria-intro p{margin-top:10px;font-size:14px;line-height:1.85;color:var(--muted)}
+.criteria-list{padding:0;margin:20px 0;list-style:none}
+.criteria-list li{display:flex;align-items:flex-start;gap:12px;padding:15px 0;border-bottom:1px solid var(--line);font-size:14px;line-height:1.8}
+.criteria-list svg{flex-shrink:0;margin-top:5px;color:var(--green)}
+.stage-legend{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:5px;margin:24px 0;font-size:11px;color:#6e806f}
+.stage-legend i{font-style:normal;color:#b1bbab}
+.evidence-card{padding:18px;background:#fff;border:1px solid var(--line);border-radius:17px;margin-top:13px}
+.evidence-card h3{font-size:17px;margin-top:15px}
+.evidence-context{font-size:13px;line-height:1.8;color:#63775e;background:#eff3ea;padding:10px;border-radius:9px;margin-top:12px;white-space:pre-wrap;overflow-wrap:anywhere}
+.evidence-card .saved-note{font-size:14px;line-height:1.85;margin-bottom:8px}
+.evidence-footer{border-top:1px solid var(--line);margin-top:13px;padding-top:4px}
+.evidence-footer .text-link{font-size:11px}
+.observation-list{padding:0;border:0;margin:0 0 22px;min-width:0}
+.observation-list legend{font-size:16px;font-weight:650;margin-bottom:15px}
+.observation-list label,.attestation{display:flex;align-items:flex-start;gap:11px;font-size:14px;line-height:1.8;padding:14px;background:#fff;border:1px solid var(--line);border-radius:12px;margin-bottom:10px;cursor:pointer}
+.observation-list input,.attestation input{flex-shrink:0;width:19px;height:19px;margin-top:4px;accent-color:var(--green)}
+.attestation{margin-top:21px;background:#eef2e8;font-size:12px}
+.field-label{display:block;font-size:14px;font-weight:600;margin:21px 0 10px;line-height:1.6}
+.field-label .muted{font-size:11px;font-weight:400}
+select.input{height:auto;min-height:49px;max-width:100%;text-overflow:ellipsis;padding-right:27px}
+.input{font-size:16px}
+textarea.input{min-height:105px;line-height:1.8}
+.form-error{font-size:13px;line-height:1.8;color:#a3402a;margin:12px 0}
+.record-skill-link{padding:18px;background:#eef3e9;border-radius:14px;margin-top:20px}
+.record-skill-link p{font-size:13px;line-height:1.8;margin-bottom:14px;color:#60755e}
+.growth-overview{display:grid;grid-template-columns:repeat(3,1fr);padding:23px 5px;background:#e7eee4;border-radius:19px;text-align:center}
+.growth-overview>div+div{border-left:1px solid #d1ddcb}
+.growth-overview strong{display:block;font-size:29px;color:#2e513b}
+.growth-overview small{font-size:13px;font-weight:400}
+.growth-overview span{display:block;font-size:12px;color:#6c7b64;margin-top:9px}
+.coach-disclosure{display:flex;gap:11px;padding:17px;background:#e8eee4;border-radius:16px;font-size:12px;line-height:1.85;color:#61725b}
+.coach-disclosure strong{font-size:14px;font-weight:600;color:#365c43}
+.coach-disclosure>svg{flex-shrink:0;margin-top:3px}
+.coach-prompts{display:grid;gap:8px;margin-top:17px}
+.coach-prompts button{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 15px;background:#fff;border:1px solid var(--line);border-radius:12px;text-align:left;font-size:13px;line-height:1.7}
+.coach-conversation{margin-top:25px}
+.question-bubble{margin:20px 0 12px 35px;padding:14px 16px;background:#dfeadb;border-radius:15px 15px 3px 15px;font-size:14px;line-height:1.8;white-space:pre-wrap;overflow-wrap:anywhere}
+.answer-bubble{background:#fff;padding:20px 17px;border:1px solid var(--line);border-radius:3px 17px 17px 17px}
+.answer-bubble>.eyebrow{font-size:10px;letter-spacing:.5px;color:#809276}
+.answer-bubble>p{white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px;line-height:1.9;margin-top:13px}
+.answer-bubble>.tiny{display:block}
+.coach-composer{margin-top:25px}
+.coach-composer .button{margin-top:12px}
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible{outline:3px solid #e89d64;outline-offset:3px}
+@media(max-width:359px){.tree-intro h1{font-size:24px}.tree-node{padding:14px 12px 10px}.tree-step{gap:9px}.tree-node h3{font-size:16px}.tree-node .badge{font-size:10px;padding:4px 6px}.focus-card{padding:18px}.focus-footer{font-size:10px}.tree-section .section-head h2{font-size:16px}.path-count{font-size:22px}.skill-heading h1{font-size:26px}.drill-card{padding:18px 14px}.tree-node .tiny{font-size:10px}}

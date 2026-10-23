@@ -1,29 +1,26 @@
-# ROUND boxing mobile prototype
+# ROUND boxing skill-tree prototype
 
-A Chinese mobile interaction prototype connecting learning, round training,
-self-reflection and growth records. Data is saved in the current browser.
-Lessons are examples; hardware, recording and camera features are simulated.
+Mobile prototype: Skill Tree, Training, AI Coach and Growth.
+
+## v0.3
+
+- The first path connects stance and balance, jab and return, moving jab, and distance control.
+- Each node contains knowledge, an optional understanding check, two practice options, observation criteria, reference links and scope limits.
+- Understanding, timed practice and conditional validation are distinct. Lighting a node requires a manually reported observation, context, source and attestation. Coach feedback is labeled as user-transcribed, with identity unverified.
+- Validation can be withdrawn without removing training history. Nodes are always browsable; connections are suggested prerequisites.
+- Training preserves the chosen drill, timer state and automatic session records. Accelerated demo sessions cannot be selected as validation evidence.
+- AI Coach is a working local keyword retrieval prototype over four cards, not a connected LLM or video assessor. It makes no external AI requests.
+- Existing browser profiles, old lesson completion, sessions and drafts are preserved. Old lesson completion does not light the new skills. No daily-plan dashboard.
+- Progress and questions remain in localStorage on the visitor's browser. No personal training data or credentials are included in this repository.
 
 ## Static deployment
 
-- Node.js 18 or later; no package installation required.
-- Build command: `npm run build`
-- Output directory: `dist`
-- Root directory: `.`
-- Entry point: `index.html`
-- Hash-based routing supports static hosts without rewrite rules.
+Node.js 18+, no dependencies. Build: `npm run build`. Output: `dist`.
+Hash routes work on static hosting. The build copies index.html, styles.css, data.js and app.js.
+The existing public app URL remains https://roundboxing-10k3h3dm.maozi.io/ .
 
-The build copies the four application assets unchanged. No secrets, cloud
-credentials, user activity records or external asset dependencies are included.
+## Verification
 
-## v0.2
+27 local state regression tests passed. Browser checks covered 390px and 320px layouts, all four nodes, eight drills, twelve observation criteria, a full two-round timer run (60 active seconds), form validation, refresh persistence, growth records and source-linked coach retrieval. No browser script errors were observed.
 
-- Four destinations: Home, Learn, Train and Growth; profile and devices live in the avatar menu.
-- A single daily task connects lesson content, round training and the next recommended step.
-- Four expandable learning units, optional comprehension checks and simpler training settings.
-- Finished sessions save immediately. Feedback can be skipped and edited later from history.
-- Existing browser data and paused workouts are preserved. New visitors start with an empty history.
-- Weekly totals exclude sample and accelerated demo records. Free rounds do not count as a specific skill.
-- Larger mobile typography and controls; no new external dependencies or tracking.
-
-The v0.2 release was checked with 15 state-transition regression cases and browser flow testing.
+The educational cards and observation rubric are prototype content pending coach review, not a governing-body certification. Hardware and video capture are not implemented.
