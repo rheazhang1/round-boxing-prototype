@@ -41,7 +41,7 @@
   const dayKey = date => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(date));
   const today = () => dayKey(new Date());
   const cnDate = date => new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', month: 'long', day: 'numeric' }).format(new Date(date));
-  function defaultState(blank = false) {
+  function defaultState(blank = true) {
     return {
       version: 1, profile: { name: blank ? '新朋友' : '练习者', goal: '扎实基本功', experience: '刚刚开始', stance: '左脚在前', days: '每周 3 次' },
       learned: blank ? [] : [1, 2], lastLesson: blank ? 1 : 3,
@@ -59,6 +59,12 @@
       const saved = JSON.parse(raw);
       if (saved.version !== 1 || !Array.isArray(saved.records) || !Array.isArray(saved.learned) || !saved.profile) return defaultState();
       const merged = { ...defaultState(), ...saved };
+      // v0.1 drafts become durable records without changing IDs or existing progress.
+      if (merged.draft) {
+        const index = merged.records.findIndex(r => r.id === merged.draft.id);
+        if (index < 0) merged.records.unshift({ ...merged.draft });
+        else merged.records[index] = { ...merged.records[index], ...merged.draft };
+      }
       if (merged.workout) merged.workout.paused = true;
       return merged;
     } catch { storageAvailable = false; return defaultState(); }
@@ -69,13 +75,14 @@
     catch { storageAvailable = false; }
   }
   let route = location.hash.slice(1) || '/home';
-  let lessonTab = 'points', unitFilter = 0, growthTab = 'skills', historyFilter = 'all';
+  let lessonTab = 'points', unitFilter = null, growthTab = 'history', historyFilter = 'all';
+  let settingsOpen = false, specialtyOpen = false;
   let quizAnswer = null, quizChecked = false, lessonPlaying = false;
-  let setup = { lessonId: state.lastLesson, rounds: 3, seconds: 30, equipment: '徒手', recording: true, voice: false, type: '课程练习' };
+  let setup = { lessonId: state.lastLesson, rounds: 3, seconds: 30, equipment: '徒手', recording: false, voice: false, type: '课程练习', ...(state.preferences || {}) };
   let review = { reflection: '', effort: 2, note: '' };
   let lastTick = performance.now(), toastTimeout, modalTrigger = null;
-  const reflectionLabels = { steady: '这次比较顺畅', repeat: '还需要再练', revisit: '想再看一次示范' };
-  const reflectionDescriptions = { steady: '继续保持，下一次在同一任务中再确认。', repeat: '保留当前任务，下一回合继续关注一个要点。', revisit: '先回到课程要点，再做一次短练习。' };
+  const reflectionLabels = { steady: '这次比较顺畅', repeat: '还需要再练', revisit: '回看示范', pending: '未填写自评' };
+  const reflectionDescriptions = { pending: '计时和回合已保存，可以随时补充自评。', steady: '继续保持，下一次在同一任务中再确认。', repeat: '保留当前任务，下一回合继续关注一个要点。', revisit: '先回到课程要点，再做一次短练习。' };
 
   function boxer(pose = 'jab', playing = false) {
     const punch = pose === 'jab' || pose === 'cross';
@@ -96,85 +103,107 @@
   }
   function topbar(title = '', back = '/home', extra = '') {
     $('#topbar').className = `topbar${title ? ' detail' : ''}`;
-    $('#topbar').innerHTML = title ? `<button class="icon-btn" data-action="go" data-route="${back}" aria-label="返回">${icon('back')}</button><span class="top-title">${title}</span>${extra || '<span style="width:30px"></span>'}` : `<a href="#/home" class="app-logo" aria-label="ROUND 首页">ROUND<b>•</b></a><button class="avatar" data-action="go" data-route="/profile" aria-label="我的档案">${esc(state.profile.name.slice(0, 1))}</button>`;
+    $('#topbar').innerHTML = title ? `<button class="icon-btn" data-action="go" data-route="${back}" aria-label="返回">${icon('back')}</button><span class="top-title">${title}</span>${extra || '<span style="width:30px"></span>'}` : `<a href="#/home" class="app-logo" aria-label="ROUND 首页">ROUND<b>•</b></a><button class="avatar" data-action="go" data-route="/profile" aria-label="个人与设备">${esc(state.profile.name.slice(0, 1))}</button>`;
   }
   function navigation(active) {
-    const items = [['home', 'home', '首页'], ['learn', 'book', '学习'], ['train', 'glove', '训练'], ['growth', 'chart', '成长'], ['profile', 'user', '我的']];
+    const items = [['home', 'home', '首页'], ['learn', 'book', '学习'], ['train', 'glove', '训练'], ['growth', 'chart', '成长']];
     $('#navigation').hidden = active === 'session';
     $('#navigation').style.display = active === 'session' ? 'none' : 'grid';
     $('#navigation').innerHTML = items.map(([id, ico, label]) => `<button class="nav-item ${active === id ? 'active' : ''}" data-action="go" data-route="/${id}" ${active === id ? 'aria-current="page"' : ''}>${icon(ico)}<span>${label}</span></button>`).join('');
   }
   function resumeCard() {
-    if (state.workout) return `<div class="resume"><span>还有一段未结束的练习<br><small>已暂停 · 第 ${state.workout.round} 回合</small></span><button data-action="go" data-route="/session">继续练习</button></div>`;
-    if (state.draft) return `<div class="resume"><span>有一段练习等待复盘<br><small>保存后会出现在成长记录</small></span><button data-action="go" data-route="/review">继续复盘</button></div>`;
-    return '';
+    if (!state.workout) return '';
+    return `<div class="resume"><span>有一段未结束的练习<br><small>第 ${state.workout.round} 回合 · 已暂停</small></span><button data-action="go" data-route="/session">继续训练</button></div>`;
   }
+  function isPractice(r) {
+    return r.source === '体验记录' && !r.accelerated && r.seconds > 0;
+  }
+  function skillRecords(id) {
+    return state.records.filter(r => isPractice(r) && r.type !== '自由回合' && r.title !== '自由回合' && r.lessonId === Number(id));
+  }
+  function practiceComplete(id) {
+    return skillRecords(id).some(r => r.rounds >= r.totalRounds);
+  }
+  function flowSteps(active) {
+    return `<div class="flow-steps" aria-label="练习流程">${['看要点','练一遍','留记录'].map((name,i)=>`<span class="${i===active?'current':''}"><b>${i+1}</b>${name}</span>`).join('<i>›</i>')}</div>`;
+  }
+  function persistDraft() {
+    if (!state.draft) return;
+    const index = state.records.findIndex(r => r.id === state.draft.id);
+    if (index < 0) state.records.unshift({ ...state.draft });
+    else state.records[index] = { ...state.records[index], ...state.draft };
+  }
+  function feedbackLabel(r) { return reflectionLabels[r.reflection] || reflectionLabels.pending; }
+  function feedbackDescription(r) { return reflectionDescriptions[r.reflection] || reflectionDescriptions.pending; }
+  function weekTarget() { return Number(state.profile.days.match(/\d+/)?.[0]) || 3; }
+  function taskCard(rec, label = '开始今日任务') {
+    const l = rec.lesson, learned = state.learned.includes(l.id), practice = learned && !rec.revisit;
+    const mins = Math.ceil((setup.rounds*setup.seconds+(setup.rounds-1)*15)/60) + (practice?0:l.minutes);
+    return `<section class="today-card"><div class="between">${badge(practice?'练一遍':'学与练','dark')}<span class="tiny">约 ${mins} 分钟 · 徒手可练</span></div><h2>${l.title}</h2><p>${l.points[2]}</p><div class="task-sequence"><span class="${learned?'done':''}">${learned?'✓ 已学要点':'① 看懂要点'}</span><span>② 回合练习</span><span>③ 留下记录</span></div>${button(label+' '+icon('arrow',17),'daily-task','primary full',`data-id="${l.id}" data-mode="${practice?'practice':'learn'}"`)}<div class="task-reason">${esc(rec.reason)}</div></section>`;
+  }
+
   function recommendation() {
-    const recent = state.records.find(r => r.source === '体验记录');
-    if (recent && recent.reflection !== 'steady') return { lesson: getLesson(recent.lessonId), revisit: true, recent };
-    return { lesson: getLesson(lessons.find(l => !state.learned.includes(l.id))?.id || state.lastLesson), revisit: false, recent };
+    const recent = state.records.find(r => isPractice(r) && r.type !== '自由回合' && r.title !== '自由回合');
+    if (recent && ['repeat','revisit'].includes(recent.reflection)) return { lesson:getLesson(recent.lessonId), revisit:recent.reflection==='revisit', recent, reason:recent.reflection==='revisit'?'根据上次自评，先回看示范。':'根据上次自评，继续巩固同一个重点。' };
+    const lesson = lessons.find(l => !state.learned.includes(l.id) || !practiceComplete(l.id)) || getLesson(state.lastLesson);
+    return { lesson, revisit:false, recent, reason:state.learned.includes(lesson.id)?'已学过这节课，接下来把要点练一遍。':'按基础路线推荐，也可以自行选择课程。' };
   }
+
   function weekRecords() {
-    const now = new Date(`${today()}T12:00:00+08:00`); now.setDate(now.getDate() - 6);
+    const now = new Date(`${today()}T12:00:00+08:00`); now.setUTCDate(now.getUTCDate() - (now.getUTCDay()+6)%7);
     const first = dayKey(now);
-    return state.records.filter(r => dayKey(r.date) >= first && dayKey(r.date) <= today());
+    return state.records.filter(r => isPractice(r) && dayKey(r.date) >= first && dayKey(r.date) <= today());
   }
   function homePage() {
     topbar(); navigation('home');
-    const rec = recommendation(), l = rec.lesson;
-    const records = weekRecords();
-    return `${resumeCard()}<div class="intro"><span class="eyebrow">YOUR NEXT ROUND</span><h1>今天，把基础练扎实。</h1><p>你好，${esc(state.profile.name)}。${rec.revisit ? '从上次的复盘，找到今天的重点。' : '从一个动作开始，给进步一点耐心。'}</p></div>
-    <section class="hero" aria-label="今日学习推荐"><div class="hero-copy">${badge(rec.revisit ? '根据上次自评推荐' : '今日推荐 · 基础技术', 'dark')}<h2>${rec.revisit ? '再练一次，<br>把节奏练稳。' : l.id===3 ? '一拳之后，<br>回到护架。' : '从一个动作，<br>建立好习惯。'}</h2><p>${esc(l.title)}<br>${rec.revisit ? '保留一个重点，再次尝试。' : esc(l.subtitle)}</p></div><div class="hero-art">${boxer(l.pose)}</div><div class="hero-bottom"><span class="hero-meta">${icon('clock', 13)} ${l.minutes} 分钟课程</span>${button(`${rec.revisit ? '回看课程' : '继续学习'} ${icon('arrow', 15)}`, 'lesson', 'white compact', `data-id="${l.id}"`)}</div></section>
-    <div class="stats" aria-label="学习与记录统计"><div class="stat"><strong>${state.learned.length}<small>/12</small></strong><span>已学课程</span></div><div class="stat"><strong>${records.length}<small>次</small></strong><span>近 7 天记录</span></div><div class="stat"><strong>${Math.floor(records.reduce((a,r) => a+r.seconds,0)/60)}<small>分</small></strong><span>记录时长${records.some(r=>r.source==='示例记录')?' · 含示例':''}</span></div></div>
-    <section class="section"><div class="section-head"><h2>把刚学的，练一遍</h2><button class="text-link" data-action="go" data-route="/train">全部训练 ${icon('chevron', 13)}</button></div><button class="task-card" data-action="prepare" data-id="${l.id}"><span class="task-icon orange">${icon('glove')}</span><span class="grow"><h3>${esc(l.title)} · 轻量练习</h3><p>3 回合 · 每回合 30 秒 · 徒手可练</p></span>${icon('chevron', 16)}</button></section>
-    <section class="section"><div class="section-head"><h2>你的基础路线</h2><button class="text-link" data-action="path">查看路线 ${icon('chevron', 13)}</button></div><div class="card"><div class="between"><span class="small">从站架，到简单组合</span><span class="tiny muted">${state.learned.length}/12</span></div><div class="progress-track" style="margin-top:12px"><span style="width:${state.learned.length/12*100}%"></span></div><div class="path-preview"><span class="path-node active"><b>1</b>准备</span><span class="path-line"></span><span class="path-node"><b>2</b>直拳</span><span class="path-line"></span><span class="path-node"><b>3</b>步法</span><span class="path-line"></span><span class="path-node"><b>4</b>组合</span></div></div></section>
-    <p class="support-copy">练习记录与能力测评分别记录 · 课程为原型示例</p>`;
+    const rec = recommendation(), l = rec.lesson, records = weekRecords(), target = weekTarget();
+    const last = state.records.find(r => r.source === '体验记录');
+    const main = state.workout ? `<section class="today-card"><span class="badge dark">接着上次练</span><h2>${esc(state.workout.title)}</h2><p>第 ${state.workout.round} / ${state.workout.totalRounds} 回合 · 计时已暂停</p>${button('继续上次训练 '+icon('arrow',17),'go','primary full','data-route="/session"')}<div class="task-reason">已有进度保留，从暂停处继续。</div></section>` : taskCard(rec);
+    return `<div class="intro compact-intro"><div class="between"><span class="eyebrow">TODAY’S ROUND</span><button class="text-link" data-action="path">基础入门 ${icon('chevron',14)}</button></div><h1>今天，练好一个重点。</h1><p>${units[l.unit]} · 按自己的节奏前进</p></div>${main}
+    <button class="week-card" data-action="go" data-route="/growth"><div><span class="small muted">本周练习</span><strong>${records.length}<small> / ${target} 次计划</small></strong></div><div class="week-dots" aria-hidden="true">${Array.from({length:target},(_,i)=>`<span class="${i<records.length?'filled':''}">${i<records.length?'✓':''}</span>`).join('')}</div>${icon('chevron',16)}</button>
+    <section class="section"><div class="section-head"><h2>${last?'上次留下的重点':'你的基础路线'}</h2><button class="text-link" data-action="go" data-route="${last?'/growth':'/learn'}">${last?'查看记录':'查看课程'} ${icon('chevron',14)}</button></div>${last?`<button class="reflection-card" data-action="record" data-id="${last.id}"><span class="task-icon">${icon('book',21)}</span><div><h3>${esc(last.title)}</h3><p>${feedbackLabel(last)}${last.accelerated?' · 演示快进':''}</p></div>${icon('chevron',15)}</button>`:`<div class="card route-teaser"><h3>从站架，到简单组合</h3><p>4 个单元 · 12 节短课 · 每课都有练习</p><div class="path-preview">${units.map((u,i)=>`<span class="path-node ${i===l.unit?'active':''}"><b>${i+1}</b>${['准备','直拳','步法','组合'][i]}</span>`).join('<span class="path-line"></span>')}</div></div>`}</section>`;
   }
+
   function learnPage() {
     topbar(); navigation('learn');
-    const list = lessons.filter(l => l.unit === unitFilter);
-    return `<div class="intro"><span class="eyebrow">BUILD YOUR FOUNDATION</span><h1>一步一步，学会拳击。</h1><p>理解动作，也理解它在什么时候有用。</p></div><div class="progress-card"><div class="between"><div><span class="tiny muted">基础学习路线</span><h3 style="margin-top:6px">给每一次练习打好底子</h3></div><span class="progress-value">${state.learned.length}<small>/12</small></span></div><div class="progress-track"><span style="width:${state.learned.length/12*100}%"></span></div></div>
-    <div class="unit-filter" aria-label="课程单元">${units.map((u,i) => `<button class="chip ${unitFilter===i?'active':''}" data-action="unit" data-id="${i}" aria-pressed="${unitFilter===i}">${u}</button>`).join('')}</div>
-    <div class="section-head"><h2>${units[unitFilter]}</h2><span class="tiny muted">${list.length} 节短课</span></div>
-    ${list.map(l => `<button class="lesson-card" data-action="lesson" data-id="${l.id}"><span class="lesson-number ${state.learned.includes(l.id)?'done':l.id===state.lastLesson?'current':''}">${state.learned.includes(l.id)?icon('check',18):String(l.id).padStart(2,'0')}</span><span class="lesson-copy"><h3>${l.title}</h3><p>${l.subtitle}<br>${l.minutes} 分钟 · ${state.learned.includes(l.id)?'已完成学习':'含配套练习'}</p></span>${icon('chevron',15)}</button>`).join('')}
-    <div class="note" style="margin-top:19px">${icon('info',17)}<span>课程可以自由浏览。学习完成、练习经历和能力测评会分别记录。</span></div><button class="text-link" style="margin:12px auto" data-action="path">了解后续的风格与战术路线 ${icon('arrow',14)}</button>`;
+    const rec = recommendation(), current = unitFilter === null ? rec.lesson.unit : unitFilter;
+    return `<div class="intro"><span class="eyebrow">LEARN WITH A PATH</span><h1>一步一步，建立基础。</h1><p>每节短课，一个重点，接着练一遍。</p></div><div class="learning-overview"><div><span class="small muted">基础入门</span><h3>已学 ${state.learned.length} / ${lessons.length} 节</h3></div><button class="text-link" data-action="lesson" data-id="${rec.lesson.id}">继续第 ${rec.lesson.id} 课 ${icon('arrow',16)}</button><div class="progress-track"><span style="width:${state.learned.length/lessons.length*100}%"></span></div></div>
+    <div class="unit-list">${units.map((u,i)=>{const list=lessons.filter(l=>l.unit===i), count=list.filter(l=>state.learned.includes(l.id)).length;return `<section class="unit-block ${current===i?'open':''}"><button class="unit-heading" data-action="unit" data-id="${i}" aria-expanded="${current===i}"><span class="unit-index">0${i+1}</span><span class="grow"><h2>${u}</h2><small>${list.length} 节课 · 已学 ${count} 节</small></span>${icon(current===i?'check':'chevron',17)}</button>${current===i?`<div class="unit-lessons">${list.map(l=>{const learned=state.learned.includes(l.id), n=skillRecords(l.id).length;return `<button class="lesson-card ${l.id===rec.lesson.id?'recommended':''}" data-action="lesson" data-id="${l.id}"><span class="lesson-number ${learned?'done':''}">${learned?icon('check',18):String(l.id).padStart(2,'0')}</span><span class="lesson-copy"><h3>${l.title}</h3><p>${l.minutes} 分钟 · ${n?`练过 ${n} 次`:learned?'已学 · 待练习':'含配套练习'}</p></span>${icon('chevron',15)}</button>`;}).join('')}</div>`:''}</section>`;}).join('')}</div>
+    <button class="next-path" data-action="path"><span>${icon('flag',20)}</span><div><h3>之后，还能学什么？</h3><p>组合运用 → 情境应用 → 风格与战术</p></div>${icon('chevron',16)}</button><p class="support-copy">课程可自由浏览，学习进度与能力评价分别记录。</p>`;
   }
+
   function lessonPage(id) {
-    const l = getLesson(id); topbar('课程详情','/learn'); navigation('learn');
+    const l = getLesson(id); topbar('第 '+l.id+' 课 · '+units[l.unit],'/learn'); navigation('learn');
     const done = state.learned.includes(l.id);
-    let content = '';
-    if (lessonTab === 'points') content = l.points.map((p,i) => `<div class="point"><span>0${i+1}</span><div>${p}</div></div>`).join('') + `<div class="note">${icon('target',17)}<span>练习重点：${l.points[2]}</span></div>`;
-    if (lessonTab === 'mistake') content = `<div class="card"><h3>这一点，值得多留意</h3><p class="small muted" style="margin-top:12px">${l.mistake}</p></div><p class="small muted" style="margin-top:15px">复盘时，先挑选一个具体的检查点。可以记录自评，也可以请教练核对。</p>`;
-    if (lessonTab === 'quiz') content = `<h3>${l.question}</h3>${l.choices.map((c,i) => `<button class="quiz-choice ${quizAnswer===i?'selected':''}" data-action="answer" data-id="${i}" aria-pressed="${quizAnswer===i}"><span>${String.fromCharCode(65+i)}</span>${c}</button>`).join('')}${quizChecked ? `<div class="quiz-result ${quizAnswer!==l.answer?'wrong':''}" role="status">${quizAnswer===l.answer?'理解正确。带着这个重点，去完成一次练习。':'再想一想：'+l.points[2]}</div>` : button('检查答案','check-answer','secondary full',quizAnswer===null?'disabled':'')}`;
-    return `<div class="lesson-visual">${boxer(l.pose,lessonPlaying)}<span class="visual-caption">动作示意 · ${lessonPlaying?'播放中':'点击播放'}</span><button class="play-button" data-action="play-lesson" aria-label="${lessonPlaying?'暂停':'播放'}动作示意">${icon(lessonPlaying?'pause':'play',18)}</button></div><p class="visual-footer">风格化动画用于交互演示，非真人教学或动作评价。</p><div class="lesson-heading"><div class="row">${badge(`单元 ${l.unit+1} · 第 ${l.id} 课`)}${done?badge('已完成学习','green'):''}</div><h1>${l.title}</h1><p class="small muted">${l.subtitle} · ${l.minutes} 分钟</p></div><div class="tabs" role="tablist" aria-label="课程内容">${[['points','动作要点'],['mistake','常见问题'],['quiz','理解小测']].map(([id,label])=>`<button class="tab ${lessonTab===id?'active':''}" role="tab" aria-selected="${lessonTab===id}" data-action="lesson-tab" data-tab="${id}">${label}</button>`).join('')}</div><div class="lesson-content" role="tabpanel">${content}</div><div class="bottom-actions">${button(`${done?'再去练一次':'完成学习，去练习'} ${icon('arrow',16)}`,'complete-lesson','primary full',`data-id="${l.id}"`)}${!done?'<p class="tiny muted" style="text-align:center">完成理解小测后，记录本节学习进度。</p>':''}</div><p class="support-copy">示例教学内容 · 正式课程需经教练审校</p>`;
+    return `${flowSteps(0)}<div class="lesson-heading"><h1>${l.title}</h1><p class="small muted">${l.subtitle} · ${l.minutes} 分钟</p></div><div class="lesson-visual">${boxer(l.pose,lessonPlaying)}<span class="visual-caption">动作示意 · ${lessonPlaying?'播放中':'点击播放'}</span><button class="play-button" data-action="play-lesson" aria-label="${lessonPlaying?'暂停':'播放'}动作示意">${icon(lessonPlaying?'pause':'play',18)}</button></div><p class="visual-footer">示意动画用于原型体验，正式教学内容待教练审校。</p><section class="section"><h2>记住这几个要点</h2>${l.points.map((p,i)=>`<div class="point"><span>0${i+1}</span><div>${p}</div></div>`).join('')}</section><details class="disclosure"><summary>一个常见问题</summary><p>${l.mistake}</p></details><details class="disclosure" ${lessonTab==='quiz'?'open':''}><summary>检查一下理解 <span class="muted">选做</span></summary><div class="quiz-panel"><h3>${l.question}</h3>${l.choices.map((c,i)=>`<button class="quiz-choice ${quizAnswer===i?'selected':''}" data-action="answer" data-id="${i}" aria-pressed="${quizAnswer===i}"><span>${String.fromCharCode(65+i)}</span>${c}</button>`).join('')}${quizChecked?`<div class="quiz-result ${quizAnswer!==l.answer?'wrong':''}" role="status">${quizAnswer===l.answer?'理解正确，带着要点去练习。':l.points[2]}</div>`:button('检查答案','check-answer','secondary full',quizAnswer===null?'disabled':'')}</div></details><div class="flow-actions">${button((done?'再练一次':'学完了，去练习')+' '+icon('arrow',17),'complete-lesson','primary full',`data-id="${l.id}"`)}<p class="support-copy">配套回合练习 · 时长可以调整</p></div>`;
   }
+
   function trainPage() {
-    topbar(); navigation('train'); const l = getLesson(state.lastLesson);
-    return `${resumeCard()}<div class="intro"><span class="eyebrow">ONE FOCUS. EVERY ROUND.</span><h1>今天，带着重点练。</h1><p>给这一回合一个小目标。</p></div><section class="training-hero"><span class="round-number">03</span>${badge('课程配套练习','dark')}<h2>${l.title}</h2><p>${l.points[2]}</p><div class="row" style="margin-top:18px;color:#b2c7a7;font-size:11px">${icon('clock',14)} 3 回合 × 30 秒 <span>·</span> 徒手可练</div>${button(`开始准备 ${icon('arrow',16)}`,'prepare','primary full',`data-id="${l.id}"`)}</section>
-    <section class="section"><div class="section-head"><h2>选择练习方式</h2></div><button class="task-card" data-action="prepare" data-id="6" data-type="专项练习"><span class="task-icon">${icon('target')}</span><span class="grow"><h3>专项练习 · 出拳后回防</h3><p>每回合只关注一个检查点</p></span>${icon('chevron',15)}</button><button class="task-card" data-action="prepare" data-id="12" data-type="阶段复测"><span class="task-icon">${icon('reset')}</span><span class="grow"><h3>再做一次，看看变化</h3><p>选择同一任务，留下新的记录</p></span>${icon('chevron',15)}</button><button class="task-card" data-action="prepare" data-id="3" data-type="自由回合"><span class="task-icon orange">${icon('clock')}</span><span class="grow"><h3>自由回合</h3><p>按自己的节奏 · 计时与自我复盘</p></span>${icon('chevron',15)}</button></section>
-    <section class="section"><div class="section-head"><h2>设备，为练习多一点信息</h2></div><button class="card between" style="width:100%;text-align:left" data-action="devices"><span class="row">${icon('bluetooth',18)}<span class="small">查看可接入设备</span></span>${icon('chevron',15)}</button><p class="support-copy">没有专用硬件，也可以完成基础学习与训练。</p></section>`;
+    topbar(); navigation('train'); const rec=recommendation(), l=rec.lesson;
+    return `${resumeCard()}<div class="intro"><span class="eyebrow">ONE FOCUS. EVERY ROUND.</span><h1>带着重点，开始练。</h1><p>选好任务，剩下的交给这一回合。</p></div><section class="training-hero">${badge('跟课练 · 今日推荐','dark')}<h2>${l.title}</h2><p>${l.points[2]}</p><div class="training-meta">${setup.rounds} 回合 × ${setup.seconds} 秒 · ${setup.equipment}可练</div>${button('开始准备 '+icon('arrow',17),'prepare','primary full',`data-id="${l.id}"`)}<button class="light-link" data-action="lesson" data-id="${l.id}">先看课程要点 ${icon('chevron',14)}</button></section><section class="section"><h2>按自己的需要练</h2><button class="task-card" data-action="specialties" aria-expanded="${specialtyOpen}"><span class="task-icon">${icon('target',23)}</span><span class="grow"><h3>专项练习</h3><p>选择一个想加强的基本功</p></span>${icon('chevron',16)}</button>${specialtyOpen?`<div class="specialty-list">${[[3,'刺拳与回防'],[5,'基础组合'],[7,'前后移动'],[9,'基础防守']].map(([id,title])=>`<button class="specialty-item" data-action="prepare" data-id="${id}" data-type="专项练习">${title}${icon('chevron',14)}</button>`).join('')}</div>`:''}<button class="task-card" data-action="prepare" data-id="${l.id}" data-type="自由回合"><span class="task-icon orange">${icon('clock',23)}</span><span class="grow"><h3>自由回合</h3><p>自己安排内容，用计时保持节奏</p></span>${icon('chevron',16)}</button></section><p class="support-copy">手机就能完成练习，设备可以按需添加。</p>`;
   }
-  function prepare(id, type = '课程练习') {
-    if (state.workout || state.draft) {
-      modal('先接上上一次的练习', '<p>上一段练习还有未完成的流程。继续后再开始新练习，记录会更完整。</p>', button('继续未完成的流程','continue-pending','primary full')+button('稍后再练','close-modal','secondary full'));
-      return;
+
+  function prepare(id, type='课程练习') {
+    if (state.workout) {
+      modal('接着上一次的练习','<p>已有一段暂停的训练。可以继续，或在训练页结束后开始新的任务。</p>',button('继续训练','go','primary full','data-route="/session"')+button('稍后再练','close-modal','secondary full')); return;
     }
-    const selected = Number(id) || 3;
-    setup = { ...setup, lessonId: selected, type };
-    state.lastLesson = selected; save(); go('/setup/'+selected);
+    persistDraft(); state.draft=null;
+    const selected = Number(id) || recommendation().lesson.id;
+    setup = { ...setup, lessonId:selected, type };
+    settingsOpen=false; state.lastLesson=selected; save(); go('/setup/'+selected);
   }
+
   function setupPage(id) {
-    setup.lessonId = getLesson(id).id;
-    const l = getLesson(id); topbar('训练准备','/train'); navigation('train');
-    return `<div class="setup-heading"><span class="task-icon orange">${icon('glove',26)}</span><div><h1>${setup.type==='自由回合'?'自由回合':l.title}</h1><p>${setup.type} · ${setup.type==='自由回合'?'本次只记录计时与自评':l.subtitle}</p></div></div><div class="note">${icon('target',18)}<span>${setup.type==='自由回合'?'为自己选一个简单的关注点，训练结束后记下来。':l.points[2]}</span></div>
-    <div class="form-section"><span class="label">练几个回合？</span><div class="segmented">${[2,3,4].map(n=>`<button class="chip ${setup.rounds===n?'active':''}" data-action="setup-value" data-key="rounds" data-value="${n}" aria-pressed="${setup.rounds===n}">${n} 回合</button>`).join('')}</div></div>
-    <div class="form-section"><span class="label">每回合时长</span><div class="segmented">${[30,60,90].map(n=>`<button class="chip ${setup.seconds===n?'active':''}" data-action="setup-value" data-key="seconds" data-value="${n}" aria-pressed="${setup.seconds===n}">${n} 秒</button>`).join('')}</div><p class="tiny muted" style="margin-top:8px">回合间休息 15 秒 · 原型采用短时长便于体验</p></div>
-    <div class="form-section"><span class="label">今天在哪里练？</span><div class="segmented">${['徒手','普通沙袋'].map(s=>`<button class="chip ${setup.equipment===s?'active':''}" data-action="setup-value" data-key="equipment" data-value="${s}" aria-pressed="${setup.equipment===s}">${s}</button>`).join('')}</div></div>
-    <section class="form-section"><span class="label">辅助记录</span><div class="card" style="padding:4px 15px"><div class="setting-row"><div><h3>演示录像</h3><p>使用动画片段体验回放，不调用摄像头</p></div><button class="switch ${setup.recording?'on':''}" role="switch" aria-checked="${setup.recording}" aria-label="演示录像" data-action="toggle-setting" data-key="recording"></button></div><div class="setting-row"><div><h3>语音提示预览</h3><p>通过提示文案演示，不播放声音</p></div><button class="switch ${setup.voice?'on':''}" role="switch" aria-checked="${setup.voice}" aria-label="语音提示预览" data-action="toggle-setting" data-key="voice"></button></div></div></section>
-    <div class="device-row"><span class="task-icon" style="width:38px;height:38px">${icon('target',20)}</span><span class="grow"><h3>智能墙靶</h3><p>${state.demoTarget?'已模拟连接 · 不产生测量数据':'可选设备 · 当前未接入'}</p></span><button class="text-link" data-action="devices">${state.demoTarget?'管理':'模拟连接'}</button></div><div class="summary-strip"><span>预计流程时长</span><strong>${readableTime(setup.rounds*setup.seconds+(setup.rounds-1)*15)}</strong></div>${button(`进入第一回合 ${icon('arrow',16)}`,'start-session','primary full')}<p class="support-copy">可以暂停、提前结束或使用演示快进。</p>`;
+    setup.lessonId=getLesson(id).id;
+    const l=getLesson(id), free=setup.type==='自由回合'; topbar('训练准备','/train'); navigation('train');
+    return `${flowSteps(1)}<div class="setup-heading"><span class="task-icon orange">${icon('glove',26)}</span><div><h1>${free?'自由回合':l.title}</h1><p>${setup.type} · ${setup.equipment}可练</p></div></div><div class="note">${icon('target',19)}<span>${free?'为自己选一个重点，按自己的节奏练。':l.points[2]}</span></div><div class="session-plan"><div><strong>${setup.rounds}<small> 回合</small></strong><span>每回合 ${setup.seconds} 秒</span></div><div><strong>15<small> 秒</small></strong><span>回合间休息</span></div></div><div class="between plan-total"><span>预计 ${readableTime(setup.rounds*setup.seconds+(setup.rounds-1)*15)}</span><button class="text-link" data-action="setup-toggle" aria-expanded="${settingsOpen}">调整设置 ${icon('chevron',14)}</button></div>
+    ${settingsOpen?`<div class="settings-panel"><div class="form-section"><span class="label">回合数量</span><div class="segmented">${[2,3,4].map(n=>`<button class="chip ${setup.rounds===n?'active':''}" data-action="setup-value" data-key="rounds" data-value="${n}" aria-pressed="${setup.rounds===n}">${n} 回合</button>`).join('')}</div></div><div class="form-section"><span class="label">每回合时长</span><div class="segmented">${[30,60,90].map(n=>`<button class="chip ${setup.seconds===n?'active':''}" data-action="setup-value" data-key="seconds" data-value="${n}" aria-pressed="${setup.seconds===n}">${n} 秒</button>`).join('')}</div></div><div class="form-section"><span class="label">练习器材</span><div class="segmented">${['徒手','普通沙袋'].map(value=>`<button class="chip ${setup.equipment===value?'active':''}" data-action="setup-value" data-key="equipment" data-value="${value}" aria-pressed="${setup.equipment===value}">${value}</button>`).join('')}</div></div><div class="setting-row"><div><h3>示意回放</h3><p>仅播放课程动画，不调用摄像头</p></div><button class="switch ${setup.recording?'on':''}" role="switch" aria-checked="${setup.recording}" aria-label="示意回放" data-action="toggle-setting" data-key="recording"></button></div></div>`:''}
+    <button class="device-entry" data-action="devices">${icon('bluetooth',19)}<span>设备辅助 <small>${state.demoTarget?'墙靶模拟连接':'可选 · 无设备也能练'}</small></span>${icon('chevron',15)}</button><div class="flow-actions">${button('开始第一回合 '+icon('arrow',17),'start-session','primary full')}<p class="support-copy">结束后自动保存记录，自评可以稍后补充。</p></div>`;
   }
+
   function startSession() {
-    if (state.workout || state.draft) return;
+    if (state.workout) return;
+    state.preferences = { rounds:setup.rounds, seconds:setup.seconds, equipment:setup.equipment, recording:setup.recording };
     const l = getLesson(setup.lessonId);
     state.workout = { id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()), lessonId: l.id, title: setup.type==='自由回合'?'自由回合':l.title, type:setup.type, round:1, phase:'work', totalRounds:setup.rounds, secondsPerRound:setup.seconds, remainingMs:setup.seconds*1000, phaseTotal:setup.seconds, paused:false, activeMs:0, completed:0, equipment:setup.equipment, recording:setup.recording, voice:setup.voice, target:state.demoTarget, accelerated:false, startedAt:new Date().toISOString() };
     lastTick = performance.now(); save(); go('/session');
@@ -185,7 +214,7 @@
     topbar('专注这一回合','/train',`<button class="icon-btn" data-action="session-info" aria-label="训练状态说明">${icon('info',18)}</button>`); navigation('session');
     $('#topbar [data-action="go"]').dataset.action = 'exit-session';
     const l = getLesson(w.lessonId), rest = w.phase==='rest';
-    return `<div class="training-screen"><div class="round-label">ROUND ${String(w.round).padStart(2,'0')} / ${String(w.totalRounds).padStart(2,'0')}</div><div class="phase-title">${rest?'休息一下，再继续':esc(w.title)}</div><div class="timer-ring"><svg class="timer-svg" viewBox="0 0 240 240" aria-hidden="true"><circle class="timer-track" cx="120" cy="120" r="113"/><circle id="timer-progress" class="timer-progress" cx="120" cy="120" r="113" stroke-dasharray="710" stroke-dashoffset="0"/></svg><div><div class="time-main" id="timer-value">${time(Math.ceil(w.remainingMs/1000))}</div><div class="time-label" id="timer-state">${w.paused?'已暂停':rest?'恢复呼吸 · 准备下一回合':'跟着自己的节奏'}</div><div class="round-dots">${Array.from({length:w.totalRounds},(_,i)=>`<span class="${i<w.round?'active':''}"></span>`).join('')}</div></div></div><div class="cue">${icon(rest?'clock':'target',22)}<div><small>${rest?'下一回合的重点':w.voice?'提示文案 · 模拟语音':'这一回合，只记住'}</small><strong>${rest?'准备好后，再回到护架。':w.type==='自由回合'?'选择一个重点，按自己的节奏练。':l.points[2]}</strong></div></div><div class="session-tags">${badge(w.equipment)}${badge(w.recording?'录像：演示片段':'录像：未开启')}${w.target?badge('墙靶：模拟连接'):''}</div><div class="session-controls">${button(`${icon(w.paused?'play':'pause',18)} ${w.paused?'继续':'暂停'}`,'pause-session','white', 'id="pause-button"')}${button('结束并复盘','exit-session','outline')}</div><button class="skip-button" data-action="skip-phase">${rest?'跳过休息':'跳到下一阶段'} · 演示快进</button><p class="session-footer">计时真实运行，未采集动作或击打数据。<br>快进会标记为体验流程，不计入真实训练完成。</p></div>`;
+    return `<div class="training-screen"><div class="round-label">ROUND ${String(w.round).padStart(2,'0')} / ${String(w.totalRounds).padStart(2,'0')}</div><div class="phase-title">${rest?'休息一下，再继续':esc(w.title)}</div><div class="timer-ring"><svg class="timer-svg" viewBox="0 0 240 240" aria-hidden="true"><circle class="timer-track" cx="120" cy="120" r="113"/><circle id="timer-progress" class="timer-progress" cx="120" cy="120" r="113" stroke-dasharray="710" stroke-dashoffset="0"/></svg><div><div class="time-main" id="timer-value">${time(Math.ceil(w.remainingMs/1000))}</div><div class="time-label" id="timer-state">${w.paused?'已暂停':rest?'恢复呼吸 · 准备下一回合':'跟着自己的节奏'}</div><div class="round-dots">${Array.from({length:w.totalRounds},(_,i)=>`<span class="${i<w.round?'active':''}"></span>`).join('')}</div></div></div><div class="cue">${icon(rest?'clock':'target',22)}<div><small>${rest?'下一回合的重点':w.voice?'提示文案 · 模拟语音':'这一回合，只记住'}</small><strong>${rest?'准备好后，再回到护架。':w.type==='自由回合'?'选择一个重点，按自己的节奏练。':l.points[2]}</strong></div></div><div class="session-tags">${badge(w.equipment)}${w.recording?badge('示意回放已开启'):''}${w.target?badge('墙靶：模拟连接'):''}</div><div class="session-controls">${button(`${icon(w.paused?'play':'pause',18)} ${w.paused?'继续':'暂停'}`,'pause-session','white', 'id="pause-button"')}${button('结束','exit-session','outline')}</div><button class="skip-button" data-action="skip-phase">${rest?'跳过休息':'跳到下一阶段'} · 演示快进</button><p class="session-footer">计时真实运行，未采集动作或击打数据。<br>快进会标记为体验流程，不计入真实训练完成。</p></div>`;
   }
   function tick() {
     const now = performance.now(), dt = Math.max(0,now-lastTick); lastTick = now;
@@ -212,64 +241,60 @@
   }
   function finishSession() {
     const w=state.workout; if(!w)return;
-    state.draft={ id:w.id, date:new Date().toISOString(), lessonId:w.lessonId, title:w.title, source:'体验记录', seconds:Math.floor(w.activeMs/1000), rounds:w.completed, totalRounds:w.totalRounds, equipment:w.equipment, accelerated:w.accelerated, recording:w.recording, target:w.target, reflection:'', effort:2, note:'' };
-    state.workout=null; review={reflection:'',effort:2,note:''}; save(); go('/review');
+    state.draft={ id:w.id, date:new Date().toISOString(), lessonId:w.lessonId, title:w.title, type:w.type, source:'体验记录', seconds:Math.floor(w.activeMs/1000), rounds:w.completed, totalRounds:w.totalRounds, equipment:w.equipment, accelerated:w.accelerated, recording:w.recording, target:w.target, reflection:'', effort:null, note:'' };
+    persistDraft(); state.workout=null; review={reflection:'',effort:null,note:''}; save(); go('/review');
   }
+
   function emptyFlow(title, text, path, label) {
     topbar(title,'/home'); navigation('train');
     return `<div class="empty" style="margin-top:35px">${icon('info',30)}<h2>${title}</h2><p style="margin-top:12px">${text}</p>${button(label,'go','primary full',`data-route="${path}"`)}</div>`;
   }
   function reviewPage() {
-    if(!state.draft) return emptyFlow('没有待保存的复盘','可以开始新的练习，或查看已保存的成长记录。','/growth','查看成长记录');
-    const d=state.draft; review={reflection:d.reflection||'',effort:d.effort||2,note:d.note||''};
-    topbar('训练复盘','/train'); navigation('train');
-    return `<div class="intro"><span class="eyebrow">TAKE A MOMENT</span><h1>这一轮，你感觉如何？</h1><p>${esc(d.title)} · 记录一个真实的感受就好。</p><div class="review-stats"><span>回合流程 ${d.rounds}/${d.totalRounds}</span><span>体验计时 ${readableTime(d.seconds)}</span></div></div>${d.accelerated?'<div class="note orange">'+icon('info',17)+'<span>本次使用了演示快进。回合数表示体验流程，时长只包含实际运行的练习计时。</span></div>':''}${d.recording?`<button class="preview-clip" style="margin-top:16px" data-action="clip"><span><span class="clip-play">${icon('play',14)}</span><h3>回看动作示意</h3><span class="tiny muted">演示片段 · 非本次真实录像</span></span>${boxer(getLesson(d.lessonId).pose)}</button>`:''}
-    <div class="form-section"><span class="label">这次的自我评价</span>${['steady','repeat','revisit'].map(k=>`<button class="review-choice ${review.reflection===k?'selected':''}" data-action="reflection" data-value="${k}" aria-pressed="${review.reflection===k}"><span class="choice-mark">${review.reflection===k?'✓':''}</span><span><h3>${reflectionLabels[k]}</h3><p>${reflectionDescriptions[k]}</p></span></button>`).join('')}</div>
-    <div class="form-section"><div class="between"><label for="effort">本次主观费力程度</label><span class="tiny muted" id="effort-value">${review.effort}/5</span></div><input class="effort" id="effort" type="range" min="1" max="5" value="${review.effort}"><div class="range-labels"><span>轻松</span><span>很费力</span></div></div>
-    <div class="form-section"><label for="review-note">给下次的自己留一句话 <span class="tiny muted">（可选）</span></label><textarea id="review-note" class="input" maxlength="240" placeholder="例如：下次先慢一点，留意收拳后的护架。">${esc(review.note)}</textarea></div><div class="bottom-actions">${button('保存复盘，看看积累 '+icon('arrow',16),'save-review','primary full',!review.reflection?'disabled':'')}</div><p class="support-copy">反馈来源：你的自评 · 能力状态仍为未测评</p>`;
+    if(!state.draft) return emptyFlow('记录已经保存','可以在成长页回看，或开始下一次练习。','/growth','查看成长记录');
+    const d=state.draft; review={reflection:d.reflection||'',effort:d.effort??null,note:d.note||''};
+    topbar('本次练习','/growth'); navigation('growth');
+    return `${flowSteps(2)}<div class="saved-heading"><span class="saved-check">${icon('check',23)}</span><div><h1>这一回合，已记下。</h1><p>${esc(d.title)}</p></div></div><div class="review-metrics"><span><strong>${readableTime(d.seconds)}</strong>实际计时</span><span><strong>${d.rounds} / ${d.totalRounds}</strong>已走过回合</span></div>${d.accelerated?'<div class="note orange">'+icon('info',18)+'<span>含演示快进，保留体验记录，不计入本周练习积累。</span></div>':''}<div class="section"><div class="section-head"><h2>这一轮，感觉如何？</h2><span class="tiny muted">可选</span></div>${['steady','repeat','revisit'].map(k=>`<button class="review-choice ${review.reflection===k?'selected':''}" data-action="reflection" data-value="${k}" aria-pressed="${review.reflection===k}"><span class="choice-mark">${review.reflection===k?'✓':''}</span><span><h3>${reflectionLabels[k]}</h3></span></button>`).join('')}</div><details class="disclosure"><summary>留一句话给下次的自己 <span class="muted">可选</span></summary><textarea id="review-note" class="input" maxlength="240" placeholder="下次想关注什么？">${esc(review.note)}</textarea><label class="effort-caption" for="effort">主观费力程度 <span id="effort-value">${review.effort?review.effort+'/5':'未填写'}</span></label><input class="effort" id="effort" type="range" min="1" max="5" value="${review.effort||2}"><div class="range-labels"><span>轻松</span><span>很费力</span></div></details>${d.recording?`<button class="text-link" data-action="clip">${icon('play',16)} 回看课程示意</button>`:''}<div class="flow-actions">${button('完成，查看成长 '+icon('arrow',17),'save-review','primary full')}<p class="support-copy">${storageAvailable?'记录已保存在当前浏览器。':'浏览器存储不可用，记录暂存于本次打开期间。'}自评会帮助安排下一步。</p></div>`;
   }
+
   function saveReview() {
-    if (!state.draft || !review.reflection) return;
-    const record={...state.draft,...review};
-    if(!state.records.some(r=>r.id===record.id)) state.records.unshift(record);
-    state.draft=null; state.lastLesson=record.lessonId; save(); go('/summary/'+record.id);
+    if (!state.draft) return;
+    Object.assign(state.draft,review); persistDraft(); state.draft=null;
+    growthTab='history'; historyFilter='all'; save(); go('/growth');
   }
+
   function summaryPage(id) {
     const r=state.records.find(r=>r.id===id);
     if(!r)return emptyFlow('这条记录不存在','记录可能已重置。可以在成长页查看当前保存的记录。','/growth','查看成长');
     topbar('这一回合的收获','/growth'); navigation('growth');
     const next=r.reflection==='revisit'?'先回看要点，再练一次':r.reflection==='repeat'?'同一个重点，再练一次':'保持这个重点，下次再确认';
-    return `<div class="success-icon">${icon('check',31)}</div><div class="success-title"><h1>这一回合，留下了。</h1><p>${esc(r.title)}<br>你的复盘已存入成长记录。</p></div><div class="report-grid"><div class="report-cell"><small>${r.source==='示例记录'?'示例时长':'实际运行的体验计时'}</small><strong>${Math.floor(r.seconds/60)}<span>分</span> ${r.seconds%60}<span>秒</span></strong></div><div class="report-cell"><small>已走过的回合流程</small><strong>${r.rounds}<span>/ ${r.totalRounds} 回合</span></strong></div></div><div class="card"><div class="between"><h3>你的自评</h3>${badge(r.source,'orange')}</div><p class="small" style="margin-top:12px">${reflectionLabels[r.reflection]}</p>${r.note?`<p class="saved-note muted">“${esc(r.note)}”</p>`:''}<p class="tiny muted" style="margin-top:12px">动作能力尚未测评；本次未采集真实设备数据。</p></div><div class="section"><div class="section-head"><h2>下一步，接着走</h2></div><div class="note">${icon('target',18)}<span>${next}。${getLesson(r.lessonId).points[2]}</span></div></div><div class="bottom-actions">${button('查看成长记录 '+icon('arrow',16),'show-history','primary full')}${button(r.reflection==='revisit'?'回看这节课程':'再练一次',r.reflection==='revisit'?'lesson':'prepare','outline full',`data-id="${r.lessonId}"`)}</div>`;
+    return `<div class="success-icon">${icon('check',31)}</div><div class="success-title"><h1>这一回合，留下了。</h1><p>${esc(r.title)}<br>你的复盘已存入成长记录。</p></div><div class="report-grid"><div class="report-cell"><small>${r.source==='示例记录'?'示例时长':'实际运行的体验计时'}</small><strong>${Math.floor(r.seconds/60)}<span>分</span> ${r.seconds%60}<span>秒</span></strong></div><div class="report-cell"><small>已走过的回合流程</small><strong>${r.rounds}<span>/ ${r.totalRounds} 回合</span></strong></div></div><div class="card"><div class="between"><h3>你的自评</h3>${badge(r.source,'orange')}</div><p class="small" style="margin-top:12px">${feedbackLabel(r)}</p>${r.note?`<p class="saved-note muted">“${esc(r.note)}”</p>`:''}<p class="tiny muted" style="margin-top:12px">动作能力尚未测评；本次未采集真实设备数据。</p></div><div class="section"><div class="section-head"><h2>下一步，接着走</h2></div><div class="note">${icon('target',18)}<span>${next}。${getLesson(r.lessonId).points[2]}</span></div></div><div class="bottom-actions">${button('查看成长记录 '+icon('arrow',16),'show-history','primary full')}${button(r.reflection==='revisit'?'回看这节课程':'再练一次',r.reflection==='revisit'?'lesson':'prepare','outline full',`data-id="${r.lessonId}"`)}</div>`;
   }
   function historyRows(list) {
-    return list.map(r=>{const date=new Date(r.date);return `<button class="record-row" data-action="record" data-id="${r.id}"><span class="record-date"><strong>${new Intl.DateTimeFormat('en',{timeZone:'Asia/Shanghai',day:'2-digit'}).format(date)}</strong><small>${new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',month:'short'}).format(date)}</small></span><span class="grow"><h3>${esc(r.title)}</h3><p>${readableTime(r.seconds)} · ${reflectionLabels[r.reflection]}<br>${r.accelerated?'含快进 · ':''}反馈来源：自评</p></span>${badge(r.source,r.source==='体验记录'?'orange':'')}${icon('chevron',14)}</button>`;}).join('');
+    return list.map(r=>{const date=new Date(r.date);return `<button class="record-row" data-action="record" data-id="${r.id}"><span class="record-date"><strong>${new Intl.DateTimeFormat('en',{timeZone:'Asia/Shanghai',day:'2-digit'}).format(date)}</strong><small>${new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',month:'short'}).format(date)}</small></span><span class="grow"><h3>${esc(r.title)}</h3><p>${readableTime(r.seconds)} · ${r.rounds}/${r.totalRounds} 回合<br>${r.source==='示例记录'?'示例记录 · ':r.accelerated?'含演示快进 · ':''}${feedbackLabel(r)}</p></span>${icon('chevron',15)}</button>`;}).join('');
   }
+
   function growthPage() {
-    topbar(); navigation('growth');
-    const recent=weekRecords();
+    topbar(); navigation('growth'); const recent=weekRecords(), rec=recommendation();
+    const bars=Array.from({length:7},(_,i)=>{const d=new Date(`${today()}T12:00:00+08:00`);d.setUTCDate(d.getUTCDate()-(d.getUTCDay()+6)%7+i);const key=dayKey(d), n=recent.filter(r=>dayKey(r.date)===key).length;return `<div class="week-day ${key===today()?'today':''}"><span>${key===today()?'今天':new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',weekday:'short'}).format(d)}</span><b class="${n?'filled':''}">${n?'✓':'·'}</b></div>`;}).join('');
     let content='';
-    if(growthTab==='skills') {
-      content=`<div class="section-head"><h2>我的基础能力</h2><span class="tiny muted">练过 ≠ 已通过测评</span></div>${[[2,'站架与护架'],[3,'刺拳与回防'],[4,'后手直拳'],[5,'基础组合'],[7,'前后移动'],[9,'基础防守']].map(([id,name])=>{const related=state.records.filter(r=>r.lessonId===id),n=related.length;return `<button class="skill-row" data-action="skill" data-id="${id}"><span class="task-icon" style="width:36px;height:36px">${icon(n?'check':'target',17)}</span><span class="grow"><h3>${name}</h3><p>${n?`${n} 次记录${related.some(r=>r.source==='示例记录')?' · 含原型示例':' · 来自交互体验'}`:'还没有相关练习记录'}</p></span><span class="skill-state ${n?'':'unknown'}">未测评</span>${icon('chevron',13)}</button>`;}).join('')}<div class="note">${icon('info',17)}<span>自评帮助选择下一步练习。能力是否掌握，需要另外的观察与评价。</span></div>`;
-    } else {
-      const list=historyFilter==='week'?recent:state.records;
-      content=`<div class="section-head"><h2>每次练习，都有来路</h2></div><div class="chips" style="margin-bottom:8px">${[['all','全部'],['week','近 7 天']].map(([id,label])=>`<button class="chip ${historyFilter===id?'active':''}" data-action="history-filter" data-value="${id}" aria-pressed="${historyFilter===id}">${label}</button>`).join('')}</div>${list.length?historyRows(list):`<div class="empty" style="margin-top:18px">${icon('book',30)}<p>这里还没有记录。<br>完成一次练习并保存复盘，就能在这里回看。</p>${button('开始第一回合','go','primary full','data-route="/train"')}</div>`}`;
-    }
-    const bars=Array.from({length:7},(_,i)=>{let d=new Date(`${today()}T12:00:00+08:00`);d.setDate(d.getDate()-(6-i));let key=dayKey(d),n=state.records.filter(r=>dayKey(r.date)===key).length;return `<div class="day ${i===6?'today':''}"><span class="day-count">${n?n+' 次':''}</span><div class="bar-area"><span class="bar ${n?'filled':''}" style="height:${n?Math.min(60,18+n*16):4}px"></span></div><span class="day-label">${i===6?'今天':new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',weekday:'short'}).format(d)}</span></div>`;}).join('');
-    return `<div class="intro"><span class="eyebrow">YOUR WORK, OVER TIME</span><h1>进步，藏在每次练习里。</h1><p>记录积累，也保留还没弄明白的地方。</p></div><div class="growth-banner">${badge('当前路线 · 基础入门','dark')}<h2>基础正在一点点建立</h2><p>学习完成 ${state.learned.length} 节 · 保存 ${state.records.length} 次记录</p><div class="progress-track"><span style="width:${state.learned.length/12*100}%"></span></div><div class="between"><span>课程进度</span><span>${state.learned.length} / 12</span></div></div><section class="section"><div class="section-head"><h2>近 7 天的积累</h2><span class="tiny muted">${recent.length} 次${recent.some(r=>r.source==='示例记录')?' · 含示例记录':''}</span></div><div class="activity" aria-label="近七天练习记录">${bars}</div></section><div class="tabs" role="tablist" aria-label="成长记录类型">${[['skills','能力档案'],['history','练习记录']].map(([id,label])=>`<button class="tab ${growthTab===id?'active':''}" role="tab" aria-selected="${growthTab===id}" data-action="growth-tab" data-tab="${id}">${label}</button>`).join('')}</div><div role="tabpanel">${content}</div>`;
+    if(growthTab==='skills') content=`<p class="small muted tab-intro">已学内容与练习经历分开记录。</p>${lessons.filter(l=>[2,3,4,5,7,8,9,10,11].includes(l.id)).map(l=>{const related=skillRecords(l.id), last=related[0], learned=state.learned.includes(l.id);return `<button class="skill-row" data-action="skill" data-id="${l.id}"><span class="task-icon">${icon(learned?'check':'target',19)}</span><span class="grow"><h3>${l.title}</h3><p>${learned?'已学':'未学'} · ${related.length?'练过 '+related.length+' 次':'尚未练习'}${last?'<br>最近自评：'+feedbackLabel(last):''}</p></span>${icon('chevron',15)}</button>`;}).join('')}<p class="support-copy">自评用于安排练习。动作能力需要另行观察与评价。</p>`;
+    else {const list=historyFilter==='week'?state.records.filter(r=>{const d=dayKey(r.date);const start=new Date(`${today()}T12:00:00+08:00`);start.setDate(start.getDate()-6);return d>=dayKey(start)&&d<=today();}):state.records;content=`<div class="chips history-chips">${[['all','全部'],['week','近 7 天']].map(([id,label])=>`<button class="chip ${historyFilter===id?'active':''}" data-action="history-filter" data-value="${id}" aria-pressed="${historyFilter===id}">${label}</button>`).join('')}</div>${list.length?`<div class="history-list">${historyRows(list)}</div>`:`<div class="empty">${icon('book',30)}<h3>从第一回合开始积累</h3><p>完成练习后，记录会自动出现在这里。</p>${button('开始第一次练习','prepare','primary full',`data-id="${rec.lesson.id}"`)}</div>`}`;}
+    return `<div class="intro"><span class="eyebrow">YOUR PROGRESS</span><h1>每次练习，都有积累。</h1></div><section class="growth-week"><div class="between"><h2>本周练习</h2><span class="tiny muted">计划 ${weekTarget()} 次</span></div><div class="growth-totals"><strong>${recent.length}<small>次</small></strong><strong>${Math.floor(recent.reduce((a,r)=>a+r.seconds,0)/60)}<small>分钟</small></strong><span>已学 ${state.learned.length} / 12 节</span></div><div class="week-calendar">${bars}</div><p class="tiny muted">示例与快进体验不计入本周积累。</p></section><button class="next-recommendation" data-action="daily-task" data-id="${rec.lesson.id}" data-mode="${state.learned.includes(rec.lesson.id)&&!rec.revisit?'practice':'learn'}"><span class="task-icon orange">${icon('arrow',20)}</span><span class="grow"><small>下一步建议</small><h3>${rec.revisit?'回看：':'继续：'}${rec.lesson.title}</h3></span>${icon('chevron',16)}</button><div class="tabs" role="tablist" aria-label="成长记录类型">${[['history','练习记录'],['skills','技能进度']].map(([id,label])=>`<button class="tab ${growthTab===id?'active':''}" role="tab" aria-selected="${growthTab===id}" data-action="growth-tab" data-tab="${id}">${label}</button>`).join('')}</div><div role="tabpanel">${content}</div>`;
   }
+
   function recordPage(id) {
     const r=state.records.find(r=>r.id===id); if(!r)return emptyFlow('记录不存在','这条记录可能已经重置或删除。','/growth','返回成长');
     topbar('练习记录','/growth'); navigation('growth');
-    return `<div class="intro">${badge(r.source,r.source==='体验记录'?'orange':'')}<h1 style="margin-top:14px">${esc(r.title)}</h1><p>${cnDate(r.date)} · ${esc(r.equipment)}${r.accelerated?' · 含演示快进':''}</p></div><div class="report-grid" style="margin-top:0"><div class="report-cell"><small>${r.source==='示例记录'?'示例时长':'体验计时'}</small><strong>${Math.floor(r.seconds/60)}<span>分</span> ${r.seconds%60}<span>秒</span></strong></div><div class="report-cell"><small>回合流程</small><strong>${r.rounds}<span>/ ${r.totalRounds}</span></strong></div></div><div class="card"><div class="between"><h3>${reflectionLabels[r.reflection]}</h3>${badge('来源：自评')}</div><p class="small muted" style="margin-top:12px">${reflectionDescriptions[r.reflection]}</p><p class="tiny muted" style="margin-top:12px">主观费力程度 ${r.effort}/5</p>${r.note?`<p class="saved-note">${esc(r.note)}</p>`:''}</div>${r.recording?`<button class="preview-clip" style="margin-top:17px" data-action="clip" data-id="${r.lessonId}"><span><span class="clip-play">${icon('play',14)}</span><h3>课程动作示意</h3><span class="tiny muted">本次未保存真实录像</span></span>${boxer(getLesson(r.lessonId).pose)}</button>`:''}<div class="note" style="margin-top:20px">${icon('info',17)}<span>这条记录${r.source==='示例记录'?'是预置演示内容':'来自原型交互'}。没有真实动作识别、拳力或鞋垫数据，能力状态为未测评。</span></div><div class="bottom-actions">${button('按同一任务再练一次','prepare','primary full',`data-id="${r.lessonId}"`)}${button('回看对应课程','lesson','outline full',`data-id="${r.lessonId}"`)}</div><button class="text-link" style="margin:18px auto 0;color:#aa6247" data-action="delete-record" data-id="${r.id}">删除这条本地记录</button>`;
+    return `<div class="intro">${badge(r.source,r.source==='体验记录'?'orange':'')}<h1 style="margin-top:14px">${esc(r.title)}</h1><p>${cnDate(r.date)} · ${esc(r.equipment)}${r.accelerated?' · 含演示快进':''}</p></div><div class="report-grid" style="margin-top:0"><div class="report-cell"><small>${r.source==='示例记录'?'示例时长':'体验计时'}</small><strong>${Math.floor(r.seconds/60)}<span>分</span> ${r.seconds%60}<span>秒</span></strong></div><div class="report-cell"><small>回合流程</small><strong>${r.rounds}<span>/ ${r.totalRounds}</span></strong></div></div><div class="card"><div class="between"><h3>${feedbackLabel(r)}</h3>${badge(r.reflection?'来源：自评':'待补充自评')}</div><p class="small muted" style="margin-top:12px">${feedbackDescription(r)}</p><p class="tiny muted" style="margin-top:12px">主观费力程度 ${r.effort?r.effort+'/5':'未填写'}</p>${r.note?`<p class="saved-note">${esc(r.note)}</p>`:''}</div>${r.recording?`<button class="preview-clip" style="margin-top:17px" data-action="clip" data-id="${r.lessonId}"><span><span class="clip-play">${icon('play',14)}</span><h3>课程动作示意</h3><span class="tiny muted">本次未保存真实录像</span></span>${boxer(getLesson(r.lessonId).pose)}</button>`:''}<div class="note" style="margin-top:20px">${icon('info',17)}<span>这条记录${r.source==='示例记录'?'是预置演示内容':'来自原型交互'}。没有真实动作识别、拳力或鞋垫数据，能力状态为未测评。</span></div><div class="bottom-actions">${r.source==='体验记录'?button(r.reflection?'调整自评':'补充自评','edit-review','primary full',`data-id="${r.id}"`):''}${button('按同一任务再练一次','prepare','outline full',`data-id="${r.lessonId}" data-type="${r.type==='自由回合'||r.title==='自由回合'?'自由回合':'课程练习'}"`)}${button('回看对应课程','lesson','outline full',`data-id="${r.lessonId}"`)}</div><button class="text-link" style="margin:18px auto 0;color:#aa6247" data-action="delete-record" data-id="${r.id}">删除这条本地记录</button>`;
   }
   function profilePage() {
-    topbar(); navigation('profile');
-    return `<div class="profile-card"><span class="avatar">${esc(state.profile.name.slice(0,1))}</span><div><h1>${esc(state.profile.name)}</h1><p>${esc(state.profile.experience)} · ${esc(state.profile.stance)}</p></div></div><div class="card"><div class="between"><span class="tiny muted">我的训练目标</span>${badge('本地体验档案')}</div><h2 style="margin-top:10px">${esc(state.profile.goal)}</h2><p class="small muted" style="margin-top:8px">${esc(state.profile.days)} · 按自己的节奏前进</p></div><div class="section card" style="padding:0 17px"><button class="menu-button" data-action="go" data-route="/profile/edit">${icon('user',18)}<span>调整个人档案</span>${icon('chevron',15)}</button><button class="menu-button" data-action="devices">${icon('bluetooth',18)}<span>设备与辅助记录</span><small>${state.demoTarget?'1 个模拟连接':'未接入真实设备'}</small>${icon('chevron',15)}</button><button class="menu-button" data-action="path">${icon('flag',18)}<span>完整发展路线</span>${icon('chevron',15)}</button></div><div class="section card" style="padding:0 17px"><button class="menu-button" data-action="export">${icon('download',18)}<span>导出本地体验记录</span>${icon('chevron',15)}</button><button class="menu-button" data-action="blank">${icon('user',18)}<span>体验新手空白档案</span>${icon('chevron',15)}</button><button class="menu-button" data-action="reset">${icon('reset',18)}<span>重置为示例档案</span>${icon('chevron',15)}</button><button class="menu-button" data-action="about">${icon('info',18)}<span>关于这个原型</span>${icon('chevron',15)}</button></div><p class="support-copy">${storageAvailable?'进度仅保存在当前浏览器；清理浏览器数据会移除记录。':'浏览器存储不可用：当前进度只保留在本次打开期间。'}<br>ROUND · Prototype 0.1</p>`;
+    topbar('个人与设备','/home'); navigation('profile');
+    return `<div class="profile-card"><span class="avatar">${esc(state.profile.name.slice(0,1))}</span><div><h1>${esc(state.profile.name)}</h1><p>${esc(state.profile.experience)} · ${esc(state.profile.stance)}</p></div></div><div class="card"><div class="between"><span class="tiny muted">我的训练目标</span>${badge('本地体验档案')}</div><h2 style="margin-top:10px">${esc(state.profile.goal)}</h2><p class="small muted" style="margin-top:8px">${esc(state.profile.days)} · 按自己的节奏前进</p></div><div class="section card" style="padding:0 17px"><button class="menu-button" data-action="go" data-route="/profile/edit">${icon('user',18)}<span>调整个人档案</span>${icon('chevron',15)}</button><button class="menu-button" data-action="devices">${icon('bluetooth',18)}<span>设备与辅助记录</span><small>${state.demoTarget?'1 个模拟连接':'未接入真实设备'}</small>${icon('chevron',15)}</button><button class="menu-button" data-action="path">${icon('flag',18)}<span>完整发展路线</span>${icon('chevron',15)}</button></div><div class="section card" style="padding:0 17px"><button class="menu-button" data-action="export">${icon('download',18)}<span>导出本地体验记录</span>${icon('chevron',15)}</button><button class="menu-button" data-action="blank">${icon('user',18)}<span>清空本地体验进度</span>${icon('chevron',15)}</button><button class="menu-button" data-action="reset">${icon('reset',18)}<span>载入示例档案</span>${icon('chevron',15)}</button><button class="menu-button" data-action="about">${icon('info',18)}<span>关于这个原型</span>${icon('chevron',15)}</button></div><p class="support-copy">${storageAvailable?'进度仅保存在当前浏览器；清理浏览器数据会移除记录。':'浏览器存储不可用：当前进度只保留在本次打开期间。'}<br>ROUND · Prototype 0.2</p>`;
   }
   function editProfilePage() {
     topbar('个人档案','/profile'); navigation('profile'); const p=state.profile;
     const select=(key,label,options)=>`<div class="form-section"><label for="profile-${key}">${label}</label><select class="input" id="profile-${key}" name="${key}">${options.map(o=>`<option ${p[key]===o?'selected':''}>${o}</option>`).join('')}</select></div>`;
-    return `<div class="intro"><h1>从你的起点开始。</h1><p>这些选择用于组织学习与练习建议。</p></div><form id="profile-form"><div class="form-section" style="margin-top:0"><label for="profile-name">怎么称呼你</label><input class="input" id="profile-name" name="name" maxlength="20" required value="${esc(p.name)}" autocomplete="nickname"></div>${select('experience','当前经验',['刚刚开始','有少量练习经验','正在跟随教练学习'])}${select('goal','当前目标',['扎实基本功','建立训练习惯','提高动作稳定性'])}${select('stance','目前使用的站架',['左脚在前','右脚在前','暂未确定'])}${select('days','希望每周安排',['每周 2 次','每周 3 次','每周 4 次'])}<div class="bottom-actions"><button class="button primary full" type="submit">保存档案 ${icon('check',16)}</button></div></form><p class="support-copy">站架信息作为自填偏好保存，不用于自动判断适合的打法。</p>`;
+    return `<div class="intro"><h1>从你的起点开始。</h1><p>设置每周计划，记录自己的练习偏好。</p></div><form id="profile-form"><div class="form-section" style="margin-top:0"><label for="profile-name">怎么称呼你</label><input class="input" id="profile-name" name="name" maxlength="20" required value="${esc(p.name)}" autocomplete="nickname"></div>${select('experience','当前经验',['刚刚开始','有少量练习经验','正在跟随教练学习'])}${select('goal','当前目标',['扎实基本功','建立训练习惯','提高动作稳定性'])}${select('stance','目前使用的站架',['左脚在前','右脚在前','暂未确定'])}${select('days','希望每周安排',['每周 2 次','每周 3 次','每周 4 次'])}<div class="bottom-actions"><button class="button primary full" type="submit">保存档案 ${icon('check',16)}</button></div></form><p class="support-copy">站架信息作为自填偏好保存，不用于自动判断适合的打法。</p>`;
   }
 
   function modal(title, body, actions='') {
@@ -320,17 +345,20 @@
     const a=b.dataset.action, id=b.dataset.id, value=b.dataset.value;
     if(a==='go')go(b.dataset.route);
     else if(a==='lesson'){lessonTab='points';quizAnswer=null;quizChecked=false;lessonPlaying=false;state.lastLesson=Number(id);save();go('/lesson/'+id);}
-    else if(a==='unit'){unitFilter=Number(id);render(false);}
+    else if(a==='unit'){unitFilter=Number(id)===(unitFilter===null?recommendation().lesson.unit:unitFilter)?-1:Number(id);render(false);}
     else if(a==='lesson-tab'){lessonTab=b.dataset.tab;render(false);}
-    else if(a==='answer'){quizAnswer=Number(id);quizChecked=false;render(false);}
-    else if(a==='check-answer'){quizChecked=true;render(false);}
+    else if(a==='answer'){lessonTab='quiz';quizAnswer=Number(id);quizChecked=false;render(false);}
+    else if(a==='check-answer'){lessonTab='quiz';quizChecked=true;render(false);}
     else if(a==='play-lesson'){lessonPlaying=!lessonPlaying;render(false);}
     else if(a==='complete-lesson'){
       const l=getLesson(id);
-      if(!state.learned.includes(l.id)&&!(quizChecked&&quizAnswer===l.answer)){lessonTab='quiz';render(false);$('.tabs').scrollIntoView({block:'start',behavior:'smooth'});toast('先完成一个理解小测，再记录学习进度。');return;}
       if(!state.learned.includes(l.id))state.learned.push(l.id);
       save();prepare(l.id);toast('学习进度已记录，接下来练一遍。');
     }
+    else if(a==='daily-task'){if(b.dataset.mode==='practice')prepare(id);else {lessonPlaying=false;quizAnswer=null;quizChecked=false;state.lastLesson=Number(id);save();go('/lesson/'+id);}}
+    else if(a==='specialties'){specialtyOpen=!specialtyOpen;render(false);}
+    else if(a==='setup-toggle'){settingsOpen=!settingsOpen;render(false);}
+    else if(a==='edit-review'){const record=state.records.find(r=>r.id===id);if(record){state.draft={...record};save();go('/review');}}
     else if(a==='prepare')prepare(id,b.dataset.type||'课程练习');
     else if(a==='setup-value'){setup[b.dataset.key]=['rounds','seconds'].includes(b.dataset.key)?Number(value):value;render(false);}
     else if(a==='toggle-setting'){setup[b.dataset.key]=!setup[b.dataset.key];render(false);}
@@ -339,19 +367,19 @@
     else if(a==='skip-phase'){tick();nextPhase(true);}
     else if(a==='exit-session'){
       tick();if(!state.workout)return;state.workout.paused=true;save();render(false);
-      modal('结束这一段练习？','<p>已经运行的计时会保留。可以直接进入复盘，也可以继续练习。</p>',button('结束并进入复盘','finish-session','primary full')+button('继续练习','resume-session','secondary full'));
+      modal('结束这一段练习？','<p>结束后自动保存已运行的计时和回合，自评可以稍后补充。</p>',button('结束并保存记录','finish-session','primary full')+button('继续练习','resume-session','secondary full'));
     }
     else if(a==='resume-session'){closeModal();if(state.workout){state.workout.paused=false;lastTick=performance.now();save();render(false);}}
     else if(a==='finish-session')finishSession();
     else if(a==='continue-pending')go(state.workout?'/session':'/review');
-    else if(a==='reflection'){review.reflection=value;if(state.draft)Object.assign(state.draft,review);save();render(false);}
+    else if(a==='reflection'){review.reflection=value;if(state.draft)Object.assign(state.draft,review);persistDraft();save();render(false);}
     else if(a==='save-review')saveReview();
     else if(a==='show-history'){growthTab='history';historyFilter='all';go('/growth');}
     else if(a==='growth-tab'){growthTab=b.dataset.tab;render(false);}
     else if(a==='history-filter'){historyFilter=value;render(false);}
     else if(a==='record')go('/record/'+id);
     else if(a==='skill'){
-      const l=getLesson(id),n=state.records.filter(r=>r.lessonId===l.id).length;
+      const l=getLesson(id),n=skillRecords(l.id).length;
       modal(l.title,`<p>${n?n+' 次相关记录':'尚无相关练习记录'} · 能力未测评</p><div class="note" style="margin-top:15px">${icon('info',18)}<span>完成课程与保存自评，不会自动把技能标记为掌握。</span></div><h3 style="margin-top:20px">下一次可以关注</h3>${l.points.map((p,i)=>`<div class="point"><span>${i+1}</span><div>${p}</div></div>`).join('')}`,button('学习对应课程','lesson','primary full',`data-id="${id}"`)+button('开始这项练习','prepare','outline full',`data-id="${id}"`));
     }
     else if(a==='clip'){
@@ -365,18 +393,18 @@
     else if(a==='close-modal'){closeModal();render(false);}
     else if(a==='session-info')modal('这是一段交互体验','<p>计时实际运行；动作示意、录像与墙靶连接均为模拟。使用快进时，仅记录实际运行的练习计时，不把跳过的时长计入记录。</p>',button('知道了','close-modal','primary full'));
     else if(a==='about')modal('把学习，接到下一回合',`<p>ROUND 是拳击学习与训练的手机端交互原型。你可以完整体验课程、回合练习、自我复盘和成长记录。</p><ul class="list-info"><li>课程与示意动画：原型内容，待教练审校。</li><li>预置记录：清楚标为“示例记录”。</li><li>本次操作：保存为“体验记录”。</li><li>相机、语音、设备：模拟，不采集真实数据。</li><li>进度：仅保存在当前浏览器，可导出或重置。</li></ul>`,button('开始体验','close-modal','primary full'));
-    else if(a==='delete-record')modal('删除这条本地记录？','<p>只删除这条原型记录，不影响课程学习进度。删除前也可以在“我的”中导出记录。</p>',button('确认删除','confirm-delete','primary full',`data-id="${id}"`)+button('保留记录','close-modal','secondary full'));
-    else if(a==='confirm-delete'){state.records=state.records.filter(r=>r.id!==id);save();growthTab='history';go('/growth');toast('本地记录已删除。');}
-    else if(a==='reset'||a==='blank')modal(a==='blank'?'从空白档案开始？':'重置为示例档案？','<p>这会替换当前浏览器中的原型进度、未完成练习和记录。需要保留时，请先导出。</p>',button('导出当前记录','export','outline full')+button(a==='blank'?'确认启用空白档案':'确认重置','confirm-reset','primary full',`data-value="${a}"`)+button('取消','close-modal','secondary full'));
-    else if(a==='confirm-reset'){state=defaultState(value==='blank');save();quizAnswer=null;quizChecked=false;unitFilter=0;growthTab='skills';go('/home');toast(value==='blank'?'已切换为新手空白档案。':'已恢复示例档案。');}
+    else if(a==='delete-record')modal('删除这条本地记录？','<p>只删除这条原型记录，不影响课程学习进度。删除前也可以在“个人与设备”中导出记录。</p>',button('确认删除','confirm-delete','primary full',`data-id="${id}"`)+button('保留记录','close-modal','secondary full'));
+    else if(a==='confirm-delete'){state.records=state.records.filter(r=>r.id!==id);if(state.draft?.id===id)state.draft=null;save();growthTab='history';go('/growth');toast('本地记录已删除。');}
+    else if(a==='reset'||a==='blank')modal(a==='blank'?'从空白档案开始？':'载入示例档案？','<p>这会替换当前浏览器中的原型进度、未完成练习和记录。需要保留时，请先导出。</p>',button('导出当前记录','export','outline full')+button(a==='blank'?'确认启用空白档案':'确认重置','confirm-reset','primary full',`data-value="${a}"`)+button('取消','close-modal','secondary full'));
+    else if(a==='confirm-reset'){state=defaultState(value==='blank');save();quizAnswer=null;quizChecked=false;unitFilter=null;growthTab='history';setup={lessonId:1,rounds:3,seconds:30,equipment:'徒手',recording:false,voice:false,type:'课程练习'};go('/home');toast(value==='blank'?'已切换为新手空白档案。':'已恢复示例档案。');}
     else if(a==='export'){
       const payload={app:'ROUND prototype',exportedAt:new Date().toISOString(),notice:'交互原型记录，非真实硬件测量或能力认证',...state};
       const url=URL.createObjectURL(new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}));const anchor=document.createElement('a');anchor.href=url;anchor.download=`ROUND-体验记录-${today()}.json`;anchor.click();setTimeout(()=>URL.revokeObjectURL(url),2000);toast('已导出 JSON 格式的本地体验记录。');
     }
   });
   document.addEventListener('input',e=>{
-    if(e.target.id==='review-note'){review.note=e.target.value;if(state.draft)state.draft.note=review.note;save();}
-    if(e.target.id==='effort'){review.effort=Number(e.target.value);$('#effort-value').textContent=review.effort+'/5';if(state.draft)state.draft.effort=review.effort;save();}
+    if(e.target.id==='review-note'){review.note=e.target.value;if(state.draft)state.draft.note=review.note;persistDraft();save();}
+    if(e.target.id==='effort'){review.effort=Number(e.target.value);$('#effort-value').textContent=review.effort+'/5';if(state.draft)state.draft.effort=review.effort;persistDraft();save();}
   });
   document.addEventListener('submit',e=>{
     if(e.target.id!=='profile-form')return;
