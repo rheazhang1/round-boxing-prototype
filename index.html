@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f6f5f1">
+  <meta name="description" content="ROUND 拳击学习与训练手机端交互原型。课程、回合训练、自我复盘与成长记录。">
+  <title>ROUND · 拳击成长</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 80'%3E%3Crect width='80' height='80' rx='20' fill='%23f15b35'/%3E%3Cpath d='M23 57V23h19q17 0 17 12 0 9-11 12l12 10H44L33 45v12zm10-23v4h8q6 0 6-2t-6-2z' fill='white'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="styles.css">
+  <script src="data.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <div class="desktop-shell">
+    <aside class="studio" aria-label="原型说明">
+      <a class="studio-brand" href="#/home"><span class="brand-symbol">R</span> ROUND<span class="studio-caption">拳击成长</span></a>
+      <div class="studio-copy"><span class="eyebrow">LEARN. PRACTICE. GROW.</span><h1>每一回合，<br>都有方向。</h1><p>从看懂一个动作，<br>到练好自己的节奏。</p></div>
+      <ol class="journey" id="journey"><li data-step="learn"><span>01</span><div>学一个动作<small>看要点，理解为什么</small></div></li><li data-step="train"><span>02</span><div>带着重点练<small>回合练习，保持专注</small></div></li><li data-step="review"><span>03</span><div>留下一次复盘<small>找到下一次的方向</small></div></li><li data-step="growth"><span>04</span><div>看见自己的积累<small>记录连接每一次练习</small></div></li></ol>
+      <div class="studio-bottom"><span class="small-dot"></span> MOBILE PROTOTYPE · V0.1<p>可点击体验 · 进度保存在当前浏览器<br>课程为示例，设备与录像为模拟</p></div>
+    </aside>
+    <div class="phone" id="phone">
+      <div class="prototype-strip"><span class="small-dot"></span> 交互原型 <span>· 示例内容与模拟设备</span><button data-action="about" aria-label="原型说明">i</button></div>
+      <header id="topbar" class="topbar"></header>
+      <main id="screen" class="screen" tabindex="-1"></main>
+      <nav id="navigation" class="bottom-nav" aria-label="主导航"></nav>
+      <div id="toast" class="toast" role="status" aria-live="polite"></div>
+      <div id="modal-root"></div>
+    </div>
+  </div>
+</body>
+</html>
