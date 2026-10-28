@@ -1,0 +1,39 @@
+{
+  "format": "round-multipart/1",
+  "groups": {
+    "release": {
+      "sha256": "c514058aceffe9ae65ff4061817cac12aa0d7ed2a9b2cbfc2ca6d7ed5d78e7f1",
+      "parts": [
+        {
+          "path": "ui-v3-release-01.part",
+          "sha256": "e95caf46d5c80735b09510b804bf498d7ed78214a87a5be5deb2ca385c740d24"
+        },
+        {
+          "path": "ui-v3-release-02.part",
+          "sha256": "c945fea783b99333743849d88f218d0b39b76babaf015c4c931fe9769b15c345"
+        },
+        {
+          "path": "ui-v3-release-03.part",
+          "sha256": "d7b41055d228acfb906814376c6e01cb89cc9d381dedb4d57695e7b1fe831cf7"
+        }
+      ]
+    },
+    "design": {
+      "sha256": "f2505ddceb827c2b7f0fde96584e5adb42735555c2d09ff9a15b2ec83de2a175",
+      "parts": [
+        {
+          "path": "ui-v3-design-01.part",
+          "sha256": "8d112cbb543d6e3e7f983a21e261cf1061d078fbbda7b5da4508c29f4846ee20"
+        },
+        {
+          "path": "ui-v3-design-02.part",
+          "sha256": "b8925e45df11be067e6bf8b757223bf1df2777a96564a9ca49edade785b982ac"
+        },
+        {
+          "path": "ui-v3-design-03.part",
+          "sha256": "2b64969e61a99d310b0535f20b9481d9e3d59d83c06b634323e3e79b0cdc79a1"
+        }
+      ]
+    }
+  }
+}
